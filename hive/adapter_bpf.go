@@ -1,3 +1,17 @@
+// Copyright 2015 PLUMgrid
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // vim: set ts=8:sts=8:sw=8:noet
 
 package hive
@@ -5,6 +19,7 @@ package hive
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
 	"strings"
 	"unsafe"
 )
@@ -19,6 +34,18 @@ import "C"
 // BpfModule type
 type BpfModule struct {
 	p unsafe.Pointer
+}
+
+var (
+	cHeader string
+)
+
+func init() {
+	b, err := ioutil.ReadFile(".wrapper.c")
+	if err != nil {
+		panic(err)
+	}
+	cHeader = string(b)
 }
 
 // NewBpfModule constructor
@@ -36,6 +63,27 @@ func (bpf *BpfModule) Close() {
 	Debug.Println("Closing BpfModule")
 	C.bpf_module_destroy(bpf.p)
 }
+
+func (bpf *BpfModule) entryFD() (int, error) {
+	name := C.CString("handle_rx_wrapper")
+	defer C.free(unsafe.Pointer(name))
+	start := (*C.struct_bpf_insn)(C.bpf_function_start(bpf.p, name))
+	size := C.int(C.bpf_function_size(bpf.p, name))
+	license := C.bpf_module_license(bpf.p)
+	version := C.bpf_module_kern_version(bpf.p)
+	if start == nil {
+		return -1, fmt.Errorf("BpfModule: unable to find handle_rx_wrapper")
+	}
+	logbuf := make([]byte, 65536)
+	logbufP := (*C.char)(unsafe.Pointer(&logbuf[0]))
+	fd := C.bpf_prog_load(C.BPF_PROG_TYPE_SCHED_ACT, start, size, license, version, logbufP, C.uint(len(logbuf)))
+	if fd < 0 {
+		msg := string(logbuf[:bytes.IndexByte(logbuf, 0)])
+		return -1, fmt.Errorf("Error loading bpf program\n%s", msg)
+	}
+	return int(fd), nil
+}
+
 func (bpf *BpfModule) TableSize() uint64 {
 	size := C.bpf_num_tables(bpf.p)
 	return uint64(size)
@@ -94,11 +142,15 @@ func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {
 			if !ok {
 				return fmt.Errorf("Expected code argument to be a string")
 			}
-			adapter.bpf = NewBpfModule(val)
+			adapter.bpf = NewBpfModule(fmt.Sprintf("%s\n%s", cHeader, val))
 			if adapter.bpf == nil {
 				return fmt.Errorf("Could not load bpf code, check server log for details")
 			}
 			adapter.config["code"] = val
+			_, err := adapter.bpf.entryFD()
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -225,6 +277,7 @@ func (table *BpfTable) leafToBytes(leafX interface{}) ([]byte, error) {
 	return leaf, nil
 }
 
+// Get takes a key and returns the value or nil, and an 'ok' style indicator
 func (table *BpfTable) Get(keyX interface{}) (interface{}, bool) {
 	mod := table.module.p
 	fd := C.bpf_table_fd_id(mod, table.id)

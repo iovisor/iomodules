@@ -101,14 +101,22 @@ type moduleEntry struct {
 }
 
 type AdapterEntries struct {
-	m   map[string]Adapter
-	mtx sync.RWMutex
+	mtx        sync.RWMutex
+	m          map[string]Adapter
+	patchPanel *PatchPanel
 }
 
-var adapterEntries AdapterEntries
+var (
+	adapterEntries AdapterEntries
+)
 
 func init() {
 	adapterEntries.m = make(map[string]Adapter)
+	var err error
+	adapterEntries.patchPanel, err = NewPatchPanel()
+	if err != nil {
+		panic(err)
+	}
 }
 
 func (a *AdapterEntries) Add(adapter Adapter) {
@@ -376,7 +384,7 @@ func handleConnectionDelete(r *http.Request) routeResponse {
 	return routeResponse{}
 }
 
-func Run() error {
+func NewServer() http.Handler {
 	Info.Println("IOVisor HTTP Daemon starting...")
 	rtr := mux.NewRouter()
 
@@ -405,5 +413,5 @@ func Run() error {
 	con.Methods("PUT").Path("/{connId}").HandlerFunc(makeHandler(handleConnectionPut))
 	con.Methods("DELETE").Path("/{connId}").HandlerFunc(makeHandler(handleConnectionDelete))
 
-	return http.ListenAndServe(":5000", rtr)
+	return rtr
 }
