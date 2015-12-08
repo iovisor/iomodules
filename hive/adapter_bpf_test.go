@@ -30,14 +30,14 @@ var (
 	trivialC = `
 #include "iomodule.h"
 static int handle_rx(void *pkt, struct metadata *md) {
-  return RX_OK;
+	return RX_OK;
 }
 	`
 	errorC = `
 #include "iomodule.h"
 static int handle_rx(void *pkt, struct metadata *md) {
-  *(volatile int*)0 = 0;
-  return RX_OK;
+	*(volatile int*)0 = 0;
+	return RX_OK;
 }
 `
 )

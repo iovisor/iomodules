@@ -33,7 +33,8 @@ import "C"
 
 // BpfModule type
 type BpfModule struct {
-	p unsafe.Pointer
+	p     unsafe.Pointer
+	funcs map[string]int
 }
 
 var (
@@ -57,18 +58,42 @@ func NewBpfModule(code string) *BpfModule {
 	if c == nil {
 		return nil
 	}
-	return &BpfModule{c}
+	return &BpfModule{
+		p:     c,
+		funcs: make(map[string]int),
+	}
 }
 func (bpf *BpfModule) Close() {
 	Debug.Println("Closing BpfModule")
 	C.bpf_module_destroy(bpf.p)
 }
 
-func (bpf *BpfModule) entryFD() (int, error) {
-	name := C.CString("handle_rx_wrapper")
-	defer C.free(unsafe.Pointer(name))
-	start := (*C.struct_bpf_insn)(C.bpf_function_start(bpf.p, name))
-	size := C.int(C.bpf_function_size(bpf.p, name))
+func (bpf *BpfModule) initRxHandler() (int, error) {
+	fd, err := bpf.Load("handle_rx_wrapper", C.BPF_PROG_TYPE_SCHED_ACT)
+	if err != nil {
+		return -1, err
+	}
+	return fd, nil
+}
+
+func (bpf *BpfModule) Load(name string, progType int) (int, error) {
+	fd, ok := bpf.funcs[name]
+	if ok {
+		return fd, nil
+	}
+	fd, err := bpf.load(name, progType)
+	if err != nil {
+		return -1, err
+	}
+	bpf.funcs[name] = fd
+	return fd, nil
+}
+
+func (bpf *BpfModule) load(name string, progType int) (int, error) {
+	nameCS := C.CString(name)
+	defer C.free(unsafe.Pointer(nameCS))
+	start := (*C.struct_bpf_insn)(C.bpf_function_start(bpf.p, nameCS))
+	size := C.int(C.bpf_function_size(bpf.p, nameCS))
 	license := C.bpf_module_license(bpf.p)
 	version := C.bpf_module_kern_version(bpf.p)
 	if start == nil {
@@ -76,10 +101,10 @@ func (bpf *BpfModule) entryFD() (int, error) {
 	}
 	logbuf := make([]byte, 65536)
 	logbufP := (*C.char)(unsafe.Pointer(&logbuf[0]))
-	fd := C.bpf_prog_load(C.BPF_PROG_TYPE_SCHED_ACT, start, size, license, version, logbufP, C.uint(len(logbuf)))
+	fd := C.bpf_prog_load(uint32(progType), start, size, license, version, logbufP, C.uint(len(logbuf)))
 	if fd < 0 {
 		msg := string(logbuf[:bytes.IndexByte(logbuf, 0)])
-		return -1, fmt.Errorf("Error loading bpf program\n%s", msg)
+		return -1, fmt.Errorf("Error loading bpf program:\n%s", msg)
 	}
 	return int(fd), nil
 }
@@ -120,10 +145,13 @@ func (bpf *BpfModule) TableIter() <-chan map[string]interface{} {
 }
 
 type BpfAdapter struct {
-	id     string
-	name   string
-	config map[string]interface{}
-	bpf    *BpfModule
+	id         string
+	handle     uint
+	name       string
+	config     map[string]interface{}
+	bpf        *BpfModule
+	patchPanel *PatchPanel
+	interfaces *HandlePool
 }
 
 func (adapter *BpfAdapter) Type() string {
@@ -146,11 +174,11 @@ func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {
 			if adapter.bpf == nil {
 				return fmt.Errorf("Could not load bpf code, check server log for details")
 			}
-			adapter.config["code"] = val
-			_, err := adapter.bpf.entryFD()
-			if err != nil {
+			if err := adapter.Init(); err != nil {
+				adapter.Close()
 				return err
 			}
+			adapter.config["code"] = val
 		}
 	}
 	return nil
@@ -163,17 +191,35 @@ func (adapter *BpfAdapter) Config() map[string]interface{} {
 func (adapter *BpfAdapter) ID() string {
 	return adapter.id
 }
-
-func (adapter *BpfAdapter) Close() error {
-	adapter.bpf.Close()
-	return nil
+func (adapter *BpfAdapter) Handle() uint {
+	return adapter.handle
 }
 
-func (adapter *BpfAdapter) CreateInterface(name string) (string, error) {
-	return "", nil
+func (adapter *BpfAdapter) Init() error {
+	fd, err := adapter.bpf.initRxHandler()
+	if err != nil {
+		return err
+	}
+	return adapter.patchPanel.Register(adapter, fd)
 }
 
-func (adapter *BpfAdapter) DeleteInterface(uuid string) error {
+func (adapter *BpfAdapter) Close() {
+	if adapter.bpf != nil {
+		adapter.bpf.Close()
+	}
+	adapter.patchPanel.Unregister(adapter)
+}
+
+func (adapter *BpfAdapter) CreateInterface() (uint, error) {
+	handle, err := adapter.interfaces.Acquire()
+	if err != nil {
+		return 0, err
+	}
+	return handle, nil
+}
+
+func (adapter *BpfAdapter) DeleteInterface(id uint) error {
+	adapter.interfaces.Release(id)
 	return nil
 }
 

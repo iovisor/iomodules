@@ -16,36 +16,53 @@
 
 package hive
 
-func NewAdapter(req *createModuleRequest) (Adapter, error) {
-	uuid, err := NewUUID4()
+func NewAdapter(req *createModuleRequest, pp *PatchPanel) (adapter Adapter, err error) {
+	var (
+		id     string
+		handle uint
+	)
+	id, err = NewUUID4()
 	if err != nil {
-		return nil, err
+		return
 	}
+	handle, err = pp.AcquireHandle()
+	if err != nil {
+		return
+	}
+	defer func() {
+		if err != nil {
+			pp.ReleaseHandle(handle)
+		}
+	}()
 
-	var adapter Adapter
 	switch req.ModuleType {
 	case "bpf":
-		adapter = &BpfAdapter{
-			id:     uuid,
-			name:   req.DisplayName,
-			config: make(map[string]interface{}),
+		a := &BpfAdapter{
+			id:         id,
+			handle:     handle,
+			name:       req.DisplayName,
+			config:     make(map[string]interface{}),
+			patchPanel: pp,
+			interfaces: NewHandlePool(1024),
 		}
-		if err := adapter.SetConfig(req.Config); err != nil {
-			return nil, err
+		if err = a.SetConfig(req.Config); err != nil {
+			return
 		}
+		adapter = a
 	}
-	return adapter, nil
+	return
 }
 
 type Adapter interface {
 	ID() string
-	Close() error
+	Handle() uint
+	Close()
 	Type() string
 	Name() string
 	Config() map[string]interface{}
 	SetConfig(map[string]interface{}) error
-	CreateInterface(name string) (string, error)
-	DeleteInterface(id string) error
+	CreateInterface() (uint, error)
+	DeleteInterface(id uint) error
 	Tables() []map[string]interface{}
 	Table(name string) AdapterTable
 }

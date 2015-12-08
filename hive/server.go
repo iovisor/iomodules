@@ -188,7 +188,7 @@ func handleModulePost(r *http.Request) routeResponse {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
 	}
-	adapter, err := NewAdapter(&req)
+	adapter, err := NewAdapter(&req, adapterEntries.patchPanel)
 	if err != nil {
 		panic(err)
 	}
@@ -216,9 +216,7 @@ func handleModuleDelete(r *http.Request) routeResponse {
 	if !ok {
 		return notFound()
 	}
-	if err := adapter.Close(); err != nil {
-		panic(err)
-	}
+	adapter.Close()
 	delete(adapterEntries.m, id)
 	return routeResponse{}
 }
@@ -368,10 +366,26 @@ func handleModuleTableEntryDelete(r *http.Request) routeResponse {
 	return routeResponse{}
 }
 
-func handleConnectionList(r *http.Request) routeResponse {
-	return routeResponse{}
+type connectionEntry struct {
+	Id      string   `json:"id"`
+	Modules []string `json:"modules"`
 }
+
+func handleConnectionList(r *http.Request) routeResponse {
+	entries := []*connectionEntry{}
+	return routeResponse{body: entries}
+}
+
+type createConnectionRequest struct {
+	Modules []string `json:"modules"`
+}
+
 func handleConnectionPost(r *http.Request) routeResponse {
+	var req createConnectionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		panic(err)
+	}
+	//adapterEntries.patchPanel.Connect(a, b)
 	return routeResponse{}
 }
 func handleConnectionGet(r *http.Request) routeResponse {
