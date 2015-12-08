@@ -64,6 +64,14 @@ func wrapCode(body string) io.Reader {
 	return bytes.NewReader(b)
 }
 
+func wrapObject(body interface{}) io.Reader {
+	b, err := json.Marshal(body)
+	if err != nil {
+		panic(err)
+	}
+	return bytes.NewReader(b)
+}
+
 func TestModuleCreate(t *testing.T) {
 	srv := httptest.NewServer(NewServer())
 	defer srv.Close()
@@ -87,14 +95,48 @@ func TestModuleCreate(t *testing.T) {
 	}
 }
 
-func testOne(t *testing.T, test testCase) {
+func TestModuleConnect(t *testing.T) {
+	srv := httptest.NewServer(NewServer())
+	defer srv.Close()
+
+	var t1 moduleEntry
+	var t2 moduleEntry
+	rsp1 := testOne(t, testCase{
+		name: "trivial1",
+		url:  srv.URL + "/modules/",
+		body: wrapCode(trivialC),
+		code: http.StatusOK,
+	})
+	if err := json.Unmarshal(rsp1, &t1); err != nil {
+		t.Error(err)
+	}
+	rsp2 := testOne(t, testCase{
+		name: "trivial2",
+		url:  srv.URL + "/modules/",
+		body: wrapCode(trivialC),
+		code: http.StatusOK,
+	})
+	if err := json.Unmarshal(rsp2, &t2); err != nil {
+		t.Error(err)
+	}
+	testOne(t, testCase{
+		name: "connect",
+		url:  srv.URL + "/connections/",
+		body: wrapObject(map[string]interface{}{
+			"modules": []string{t1.Id, t2.Id},
+		}),
+		code: http.StatusOK,
+	})
+}
+
+func testOne(t *testing.T, test testCase) []byte {
 	client := &http.Client{}
 
 	resp, err := client.Post(test.url, "application/json", test.body)
 	if err != nil {
 		panic(err)
 	}
-	_, err = ioutil.ReadAll(resp.Body)
+	body, err := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
 	if err != nil {
 		t.Error(err)
@@ -102,4 +144,5 @@ func testOne(t *testing.T, test testCase) {
 	if resp.StatusCode != test.code {
 		t.Errorf("Expected %d, got %d", test.code, resp.StatusCode)
 	}
+	return body
 }

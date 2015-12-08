@@ -385,8 +385,27 @@ func handleConnectionPost(r *http.Request) routeResponse {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
 	}
-	//adapterEntries.patchPanel.Connect(a, b)
-	return routeResponse{}
+	if len(req.Modules) < 2 {
+		panic(fmt.Errorf("Too few modules in connect request"))
+	}
+	var adapters []Adapter
+	for _, id := range req.Modules {
+		a, ok := adapterEntries.m[id]
+		if !ok {
+			panic(fmt.Errorf("Reference to module %s not found in connect request", id))
+		}
+		adapters = append(adapters, a)
+	}
+	id, err := adapterEntries.patchPanel.Connect(adapters[0], adapters[1])
+	if err != nil {
+		panic(err)
+	}
+	return routeResponse{
+		body: &connectionEntry{
+			Id:      id,
+			Modules: req.Modules,
+		},
+	}
 }
 func handleConnectionGet(r *http.Request) routeResponse {
 	return routeResponse{}
