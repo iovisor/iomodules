@@ -122,7 +122,7 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	adapterEntries.m["host"] = &IfcAdapter{
+	adapterEntries.m["host"] = &HostAdapter{
 		id:     "host",
 		handle: handle,
 		name:   "host",
