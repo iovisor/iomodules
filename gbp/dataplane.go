@@ -19,6 +19,11 @@ import (
 )
 
 var filterImplC string = `
+#include "iomodule.h"
+static int rx_handler(void *pkt, struct metadata *md) {
+  // fill me in
+  return RX_OK;
+}
 `
 
 var dataplane *Dataplane

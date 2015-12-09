@@ -24,6 +24,8 @@ int handle_rx_wrapper(struct __sk_buff *skb) {
   md->clone_ifc = 0;
 
   int rc = handle_rx(skb, md);
+
+  // TODO: implementation
   switch (rc) {
     case RX_OK:
       break;
@@ -33,6 +35,7 @@ int handle_rx_wrapper(struct __sk_buff *skb) {
       return TC_ACT_SHOT;
   }
   //metadata.update(&md_id, &local_md);
+  modules.call(skb, 0);
   return TC_ACT_SHOT;
 }
 

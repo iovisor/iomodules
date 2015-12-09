@@ -11,8 +11,12 @@ enum {
   RX_ERROR,
 };
 
+struct type_value {
+  u64 type:8;
+  u64 value:56;
+};
 struct metadata {
-  u64 data[8];
+  struct type_value data[8];
   u32 flags;
   int module_id;
   int in_ifc;
