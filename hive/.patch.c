@@ -13,8 +13,6 @@ BPF_TABLE("prog", int, int, modules, 1024);
 struct link_key {
   int module_id;
   int ifc;
-  int hop_count;
-  int pad;
 };
 
 struct link {
@@ -75,7 +73,6 @@ int recv_tailcall(struct __sk_buff *skb) {
   struct link_key lkey = {
     .module_id = md->module_id,
     .ifc = md->redir_ifc,
-    .hop_count = 1,
   };
   struct link *link = links.lookup(&lkey);
   if (!link)

@@ -366,22 +366,22 @@ func handleModuleTableEntryDelete(r *http.Request) routeResponse {
 	return routeResponse{}
 }
 
-type connectionEntry struct {
+type linkEntry struct {
 	Id      string   `json:"id"`
 	Modules []string `json:"modules"`
 }
 
-func handleConnectionList(r *http.Request) routeResponse {
-	entries := []*connectionEntry{}
+func handleLinkList(r *http.Request) routeResponse {
+	entries := []*linkEntry{}
 	return routeResponse{body: entries}
 }
 
-type createConnectionRequest struct {
+type createLinkRequest struct {
 	Modules []string `json:"modules"`
 }
 
-func handleConnectionPost(r *http.Request) routeResponse {
-	var req createConnectionRequest
+func handleLinkPost(r *http.Request) routeResponse {
+	var req createLinkRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
 	}
@@ -401,19 +401,26 @@ func handleConnectionPost(r *http.Request) routeResponse {
 		panic(err)
 	}
 	return routeResponse{
-		body: &connectionEntry{
+		body: &linkEntry{
 			Id:      id,
 			Modules: req.Modules,
 		},
 	}
 }
-func handleConnectionGet(r *http.Request) routeResponse {
+func handleLinkGet(r *http.Request) routeResponse {
 	return routeResponse{}
 }
-func handleConnectionPut(r *http.Request) routeResponse {
+func handleLinkPut(r *http.Request) routeResponse {
 	return routeResponse{}
 }
-func handleConnectionDelete(r *http.Request) routeResponse {
+func handleLinkDelete(r *http.Request) routeResponse {
+	return routeResponse{}
+}
+
+func handleModuleInterfaceList(r *http.Request) routeResponse {
+	return routeResponse{}
+}
+func handleModuleInterfaceGet(r *http.Request) routeResponse {
 	return routeResponse{}
 }
 
@@ -432,6 +439,10 @@ func NewServer() http.Handler {
 	tbl.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleTableList))
 	tbl.Methods("GET").Path("/{tableId}").HandlerFunc(makeHandler(handleModuleTableGet))
 
+	ifc := mod.PathPrefix("/{moduleId}/interfaces").Subrouter()
+	ifc.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleInterfaceList))
+	ifc.Methods("GET").Path("/{interfaceId}").HandlerFunc(makeHandler(handleModuleInterfaceGet))
+
 	ent := tbl.PathPrefix("/{tableId}/entries").Subrouter()
 	ent.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleTableEntryList))
 	ent.Methods("POST").Path("/").HandlerFunc(makeHandler(handleModuleTableEntryPost))
@@ -439,12 +450,12 @@ func NewServer() http.Handler {
 	ent.Methods("PUT").Path("/{entryId}").HandlerFunc(makeHandler(handleModuleTableEntryPut))
 	ent.Methods("DELETE").Path("/{entryId}").HandlerFunc(makeHandler(handleModuleTableEntryDelete))
 
-	con := rtr.PathPrefix("/connections").Subrouter()
-	con.Methods("GET").Path("/").HandlerFunc(makeHandler(handleConnectionList))
-	con.Methods("POST").Path("/").HandlerFunc(makeHandler(handleConnectionPost))
-	con.Methods("GET").Path("/{connId}").HandlerFunc(makeHandler(handleConnectionGet))
-	con.Methods("PUT").Path("/{connId}").HandlerFunc(makeHandler(handleConnectionPut))
-	con.Methods("DELETE").Path("/{connId}").HandlerFunc(makeHandler(handleConnectionDelete))
+	con := rtr.PathPrefix("/links").Subrouter()
+	con.Methods("GET").Path("/").HandlerFunc(makeHandler(handleLinkList))
+	con.Methods("POST").Path("/").HandlerFunc(makeHandler(handleLinkPost))
+	con.Methods("GET").Path("/{connId}").HandlerFunc(makeHandler(handleLinkGet))
+	con.Methods("PUT").Path("/{connId}").HandlerFunc(makeHandler(handleLinkPut))
+	con.Methods("DELETE").Path("/{connId}").HandlerFunc(makeHandler(handleLinkDelete))
 
 	return rtr
 }

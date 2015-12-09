@@ -121,7 +121,7 @@ func TestModuleConnect(t *testing.T) {
 	}
 	testOne(t, testCase{
 		name: "connect",
-		url:  srv.URL + "/connections/",
+		url:  srv.URL + "/links/",
 		body: wrapObject(map[string]interface{}{
 			"modules": []string{t1.Id, t2.Id},
 		}),
