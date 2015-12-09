@@ -3,12 +3,12 @@
 package main
 
 import (
-	"http"
+	"net/http"
 
 	"github.com/iovisor/iomodules/hive"
 )
 
 func main() {
-	srv = hive.NewServer()
+	srv := hive.NewServer()
 	http.ListenAndServe(":5000", srv)
 }

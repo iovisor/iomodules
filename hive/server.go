@@ -97,6 +97,7 @@ type moduleEntry struct {
 	Id          string                 `json:"id"`
 	ModuleType  string                 `json:"module_type"`
 	DisplayName string                 `json:"display_name"`
+	Perm        string                 `json:"permissions"`
 	Config      map[string]interface{} `json:"config"`
 }
 
@@ -117,6 +118,16 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
+	handle, err := adapterEntries.patchPanel.AcquireHandle()
+	if err != nil {
+		panic(err)
+	}
+	adapterEntries.m["host"] = &IfcAdapter{
+		id:     "host",
+		handle: handle,
+		name:   "host",
+		perm:   PermR,
+	}
 }
 
 func (a *AdapterEntries) Add(adapter Adapter) {
@@ -128,7 +139,12 @@ func (a *AdapterEntries) Add(adapter Adapter) {
 func (a *AdapterEntries) Remove(id string) {
 	a.mtx.Lock()
 	defer a.mtx.Unlock()
-	delete(a.m, id)
+	if adapter, ok := a.m[id]; ok {
+		if adapter.Perm()&PermW == 0 {
+			panic(fmt.Errorf("Cannot remove %s, permission denied", id))
+		}
+		delete(a.m, id)
+	}
 }
 
 func (a *AdapterEntries) GetAll() []*moduleEntry {
@@ -141,6 +157,7 @@ func (a *AdapterEntries) GetAll() []*moduleEntry {
 			ModuleType:  adapter.Type(),
 			DisplayName: adapter.Name(),
 			Config:      adapter.Config(),
+			Perm:        fmt.Sprintf("0%x00", adapter.Perm()),
 		})
 	}
 	return result
@@ -162,6 +179,7 @@ func adapterToModuleEntry(a Adapter) *moduleEntry {
 		ModuleType:  a.Type(),
 		DisplayName: a.Name(),
 		Config:      a.Config(),
+		Perm:        fmt.Sprintf("0%x00", a.Perm()),
 	}
 }
 

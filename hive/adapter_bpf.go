@@ -148,6 +148,7 @@ type BpfAdapter struct {
 	id         string
 	handle     uint
 	name       string
+	perm       uint
 	config     map[string]interface{}
 	bpf        *BpfModule
 	patchPanel *PatchPanel
@@ -160,6 +161,10 @@ func (adapter *BpfAdapter) Type() string {
 
 func (adapter *BpfAdapter) Name() string {
 	return adapter.name
+}
+
+func (adapter *BpfAdapter) Perm() uint {
+	return adapter.perm
 }
 
 func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {

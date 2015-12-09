@@ -25,15 +25,20 @@ type IfcAdapter struct {
 	id     string
 	handle uint
 	name   string
+	perm   uint
 	config map[string]interface{}
 }
 
 func (adapter *IfcAdapter) Type() string {
-	return "bpf"
+	return "interfaces"
 }
 
 func (adapter *IfcAdapter) Name() string {
 	return adapter.name
+}
+
+func (adapter *IfcAdapter) Perm() uint {
+	return adapter.perm
 }
 
 func (adapter *IfcAdapter) SetConfig(config map[string]interface{}) error {
@@ -59,6 +64,11 @@ func (adapter *IfcAdapter) Init() error {
 func (adapter *IfcAdapter) Close() {
 }
 
+func (adapter *IfcAdapter) Interfaces() <-chan Interface {
+	ch := make(chan Interface)
+	close(ch)
+	return ch
+}
 func (adapter *IfcAdapter) CreateInterface() (uint, error) {
 	return 0, nil
 }
@@ -77,25 +87,25 @@ type IfcTable struct {
 func (adapter *IfcAdapter) Table(name string) AdapterTable {
 	return &IfcTable{}
 }
-func (adapter *IfcTable) ID() string {
+func (table *IfcTable) ID() string {
 	return "0"
 }
-func (adapter *IfcTable) Name() string {
+func (table *IfcTable) Name() string {
 	return ""
 }
-func (adapter *IfcTable) Config() map[string]interface{} {
+func (table *IfcTable) Config() map[string]interface{} {
 	return map[string]interface{}{}
 }
-func (adapter *IfcTable) Get(key interface{}) (interface{}, bool) {
+func (table *IfcTable) Get(key interface{}) (interface{}, bool) {
 	return nil, false
 }
-func (adapter *IfcTable) Set(key, val interface{}) error {
+func (table *IfcTable) Set(key, val interface{}) error {
 	return fmt.Errorf("IfcAdapter: Set operation not supported")
 }
-func (adapter *IfcTable) Delete(key interface{}) error {
+func (table *IfcTable) Delete(key interface{}) error {
 	return fmt.Errorf("IfcAdapter: Delete operation not supported")
 }
-func (adapter *IfcTable) Iter() <-chan AdapterTablePair {
+func (table *IfcTable) Iter() <-chan AdapterTablePair {
 	ch := make(chan AdapterTablePair)
 	close(ch)
 	return ch

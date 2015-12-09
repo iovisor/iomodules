@@ -41,6 +41,7 @@ func NewAdapter(req *createModuleRequest, pp *PatchPanel) (adapter Adapter, err 
 			id:         id,
 			handle:     handle,
 			name:       req.DisplayName,
+			perm:       PermR | PermW,
 			config:     make(map[string]interface{}),
 			patchPanel: pp,
 			interfaces: NewHandlePool(1024),
@@ -53,12 +54,18 @@ func NewAdapter(req *createModuleRequest, pp *PatchPanel) (adapter Adapter, err 
 	return
 }
 
+const (
+	PermW = 1 << (1 + iota)
+	PermR
+)
+
 type Adapter interface {
 	ID() string
 	Handle() uint
 	Close()
 	Type() string
 	Name() string
+	Perm() uint
 	Config() map[string]interface{}
 	SetConfig(map[string]interface{}) error
 	CreateInterface() (uint, error)
@@ -80,4 +87,8 @@ type AdapterTable interface {
 	Set(key, val interface{}) error
 	Delete(key interface{}) error
 	Iter() <-chan AdapterTablePair
+}
+
+type Interface interface {
+	ID() uint
 }
