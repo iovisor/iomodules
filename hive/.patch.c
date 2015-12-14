@@ -7,6 +7,7 @@
 #include "iomodule.h"
 
 BPF_TABLE("array", int, struct metadata, metadata, 8);
+BPF_TABLE_EXPORT(metadata);
 
 BPF_TABLE("prog", int, int, modules, 1024);
 
@@ -57,8 +58,10 @@ int recv_netdev(struct __sk_buff *skb) {
     .ifc = skb->ifindex,
   };
   struct link *link = links.lookup(&lkey);
-  if (!link)
+  if (!link) {
+    bpf_trace_printk("recv_netdev: miss\n");
     return TC_ACT_SHOT;
+  }
 
   *md = (struct metadata){};
   return invoke_module(skb, md, link);

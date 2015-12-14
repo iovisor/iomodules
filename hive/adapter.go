@@ -68,8 +68,10 @@ type Adapter interface {
 	Perm() uint
 	Config() map[string]interface{}
 	SetConfig(map[string]interface{}) error
-	CreateInterface() (uint, error)
-	DeleteInterface(id uint) error
+	AcquireInterface(name string) (uint, error)
+	ReleaseInterface(id uint) error
+	Interfaces() <-chan Interface
+	InterfaceByName(name string) Interface
 	Tables() []map[string]interface{}
 	Table(name string) AdapterTable
 }
@@ -90,5 +92,6 @@ type AdapterTable interface {
 }
 
 type Interface interface {
-	ID() uint
+	ID() int
+	Name() string
 }

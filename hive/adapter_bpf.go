@@ -205,6 +205,14 @@ func (adapter *BpfAdapter) Init() error {
 	if err != nil {
 		return err
 	}
+	t := adapter.Table("modules")
+	if t == nil {
+		return fmt.Errorf("Unable to load modules table")
+	}
+	// set callback for returning to patch panel
+	if err := t.Set("0", fmt.Sprintf("%d", adapter.patchPanel.FD())); err != nil {
+		return err
+	}
 	return adapter.patchPanel.Register(adapter, fd)
 }
 
@@ -215,7 +223,7 @@ func (adapter *BpfAdapter) Close() {
 	adapter.patchPanel.Unregister(adapter)
 }
 
-func (adapter *BpfAdapter) CreateInterface() (uint, error) {
+func (adapter *BpfAdapter) AcquireInterface(name string) (uint, error) {
 	handle, err := adapter.interfaces.Acquire()
 	if err != nil {
 		return 0, err
@@ -223,8 +231,17 @@ func (adapter *BpfAdapter) CreateInterface() (uint, error) {
 	return handle, nil
 }
 
-func (adapter *BpfAdapter) DeleteInterface(id uint) error {
+func (adapter *BpfAdapter) ReleaseInterface(id uint) error {
 	adapter.interfaces.Release(id)
+	return nil
+}
+
+func (adapter *BpfAdapter) Interfaces() <-chan Interface {
+	ch := make(chan Interface)
+	close(ch)
+	return ch
+}
+func (adapter *BpfAdapter) InterfaceByName(name string) Interface {
 	return nil
 }
 

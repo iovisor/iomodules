@@ -18,7 +18,7 @@ package hive
 
 import (
 	"fmt"
-	_ "github.com/vishvananda/netlink"
+	"github.com/vishvananda/netlink"
 )
 
 type HostAdapter struct {
@@ -54,7 +54,7 @@ func (adapter *HostAdapter) ID() string {
 }
 
 func (adapter *HostAdapter) Handle() uint {
-	return adapter.handle
+	return 0 //adapter.handle
 }
 
 func (adapter *HostAdapter) Init() error {
@@ -64,16 +64,55 @@ func (adapter *HostAdapter) Init() error {
 func (adapter *HostAdapter) Close() {
 }
 
-func (adapter *HostAdapter) Interfaces() <-chan Interface {
-	ch := make(chan Interface)
-	close(ch)
-	return ch
-}
-func (adapter *HostAdapter) CreateInterface() (uint, error) {
-	return 0, nil
+type HostInterface struct {
+	id   int
+	name string
 }
 
-func (adapter *HostAdapter) DeleteInterface(id uint) error {
+func (ifc *HostInterface) ID() int {
+	return ifc.id
+}
+func (ifc *HostInterface) Name() string {
+	return ifc.name
+}
+
+func (adapter *HostAdapter) Interfaces() <-chan Interface {
+	ch := make(chan Interface)
+	go func() {
+		defer close(ch)
+		links, err := netlink.LinkList()
+		if err != nil {
+			return
+		}
+		for _, link := range links {
+			ch <- &HostInterface{
+				id:   link.Attrs().Index,
+				name: link.Attrs().Name,
+			}
+		}
+	}()
+	return ch
+}
+func (adapter *HostAdapter) InterfaceByName(name string) Interface {
+	link, err := netlink.LinkByName(name)
+	Debug.Printf("HostAdapter: InterfaceByName = %v\n", link)
+	if err != nil {
+		return nil
+	}
+	return &HostInterface{
+		id:   link.Attrs().Index,
+		name: link.Attrs().Name,
+	}
+}
+func (adapter *HostAdapter) AcquireInterface(name string) (uint, error) {
+	link, err := netlink.LinkByName(name)
+	if err != nil {
+		return 0, err
+	}
+	return uint(link.Attrs().Index), nil
+}
+
+func (adapter *HostAdapter) ReleaseInterface(id uint) error {
 	return nil
 }
 

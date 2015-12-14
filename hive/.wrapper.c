@@ -6,15 +6,17 @@
 
 #include "iomodule.h"
 
-BPF_TABLE("array", int, struct metadata, metadata, 8);
-BPF_TABLE("prog", int, int, modules, 1);
+BPF_TABLE("extern", int, struct metadata, metadata, 8);
+BPF_TABLE("prog", int, int, modules, 2);
 
 int handle_rx_wrapper(struct __sk_buff *skb) {
   int md_id = skb->cb[0];
   struct metadata *md = metadata.lookup(&md_id);
-  if (!md)
+  if (!md) {
+    bpf_trace_printk("metadata lookup failed\n");
     return TC_ACT_SHOT;
-  // copy to stack to avoid verifier confusion
+  }
+  // copy to stack in cases llvm spills map pointers to stack
   //struct metadata local_md = *md;
   //local_md.flags = 0;
   //local_md.redir_ifc = 0;
@@ -30,6 +32,8 @@ int handle_rx_wrapper(struct __sk_buff *skb) {
     case RX_OK:
       break;
     case RX_REDIRECT:
+      break;
+    case RX_RECIRCULATE:
       break;
     case RX_DROP:
       return TC_ACT_SHOT;

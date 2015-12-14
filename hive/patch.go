@@ -20,6 +20,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"strconv"
+	"syscall"
+
+	"github.com/vishvananda/netlink"
 )
 
 /*
@@ -133,22 +136,122 @@ func (p *PatchPanel) Unregister(adapter *BpfAdapter) {
 	}
 }
 
-func (p *PatchPanel) Connect(a, b Adapter) (string, error) {
-	id, err := NewUUID4()
+func (p *PatchPanel) Connect(adapterA, adapterB Adapter, ifcA, ifcB string) (id string, err error) {
+	newId, err := NewUUID4()
 	if err != nil {
-		return "", err
+		return
 	}
-	if1, err := a.CreateInterface()
+
+	if1, err := adapterA.AcquireInterface(ifcA)
 	if err != nil {
-		return "", err
+		return
 	}
-	if2, err := b.CreateInterface()
+	defer func() {
+		if err != nil {
+			adapterA.ReleaseInterface(if1)
+		}
+	}()
+
+	if2, err := adapterB.AcquireInterface(ifcB)
 	if err != nil {
-		a.DeleteInterface(if1)
-		return "", err
+		return
 	}
-	key := fmt.Sprintf("{%d %d %d 0}", a.Handle(), if1, 0)
-	val := fmt.Sprintf("{%d %d 0 0}", b.Handle(), if2)
-	p.links.Set(key, val)
-	return id, nil
+	defer func() {
+		if err != nil {
+			adapterB.ReleaseInterface(if2)
+		}
+	}()
+
+	key1 := fmt.Sprintf("{%d %d }", adapterA.Handle(), if1)
+	val1 := fmt.Sprintf("{%d %d 0 0}", adapterB.Handle(), if2)
+	if err = p.links.Set(key1, val1); err != nil {
+		return
+	}
+	defer func() {
+		if err != nil {
+			p.links.Delete(key1)
+		}
+	}()
+
+	key2 := fmt.Sprintf("{%d %d }", adapterB.Handle(), if2)
+	val2 := fmt.Sprintf("{%d %d 0 0}", adapterA.Handle(), if1)
+	if err = p.links.Set(key2, val2); err != nil {
+		return
+	}
+	defer func() {
+		if err != nil {
+			p.links.Delete(key2)
+		}
+	}()
+
+	if adapterA.Type() == "host" {
+		if err = setIngressFd(int(if1), p.netdevFd); err != nil {
+			return
+		}
+	}
+
+	if adapterB.Type() == "host" {
+		if err = setIngressFd(int(if2), p.netdevFd); err != nil {
+			return
+		}
+	}
+
+	id = newId
+	return
+}
+
+func setIngressFd(ifc, fd int) error {
+	ingress := &netlink.Ingress{
+		QdiscAttrs: netlink.QdiscAttrs{
+			LinkIndex: ifc,
+			Handle:    netlink.MakeHandle(0xffff, 0),
+			Parent:    netlink.HANDLE_INGRESS,
+		},
+	}
+	if err := netlink.QdiscAdd(ingress); err != nil {
+		return fmt.Errorf("failed setting ingress qdisc: %v", err)
+	}
+	u32 := &netlink.U32{
+		FilterAttrs: netlink.FilterAttrs{
+			LinkIndex: ifc,
+			Parent:    ingress.QdiscAttrs.Handle,
+			Priority:  1,
+			Protocol:  syscall.ETH_P_ALL,
+		},
+		ClassId: netlink.MakeHandle(1, 1),
+		BpfFd:   fd,
+	}
+	if err := netlink.FilterAdd(u32); err != nil {
+		return fmt.Errorf("failed adding ingress filter: %v", err)
+	}
+	return nil
+}
+
+func setFqCodelFd(ifc, fd int) error {
+	fq := &netlink.GenericQdisc{
+		QdiscAttrs: netlink.QdiscAttrs{
+			LinkIndex: ifc,
+			Handle:    netlink.MakeHandle(1, 0),
+			Parent:    netlink.HANDLE_ROOT,
+		},
+		QdiscType: "fq_codel",
+	}
+	if err := netlink.QdiscAdd(fq); err != nil {
+		return fmt.Errorf("failed setting egress qdisc: %v", err)
+	}
+	u32 := &netlink.U32{
+		FilterAttrs: netlink.FilterAttrs{
+			LinkIndex: ifc,
+			Parent:    fq.QdiscAttrs.Handle,
+			Protocol:  syscall.ETH_P_ALL,
+			//Handle:    10,
+			//Priority:  10,
+		},
+		ClassId: netlink.MakeHandle(1, 2),
+		BpfFd:   fd,
+	}
+	if err := netlink.FilterAdd(u32); err != nil {
+		return fmt.Errorf("failed adding egress filter: %v", err)
+	}
+	return nil
 }

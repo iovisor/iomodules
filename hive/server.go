@@ -385,8 +385,9 @@ func handleModuleTableEntryDelete(r *http.Request) routeResponse {
 }
 
 type linkEntry struct {
-	Id      string   `json:"id"`
-	Modules []string `json:"modules"`
+	Id         string   `json:"id"`
+	Modules    []string `json:"modules"`
+	Interfaces []string `json:"interfaces"`
 }
 
 func handleLinkList(r *http.Request) routeResponse {
@@ -395,7 +396,8 @@ func handleLinkList(r *http.Request) routeResponse {
 }
 
 type createLinkRequest struct {
-	Modules []string `json:"modules"`
+	Modules    []string `json:"modules"`
+	Interfaces []string `json:"interfaces"`
 }
 
 func handleLinkPost(r *http.Request) routeResponse {
@@ -406,6 +408,9 @@ func handleLinkPost(r *http.Request) routeResponse {
 	if len(req.Modules) < 2 {
 		panic(fmt.Errorf("Too few modules in connect request"))
 	}
+	if len(req.Interfaces) != len(req.Modules) {
+		panic(fmt.Errorf("Mismatched arguments between 'modules' and 'interfaces"))
+	}
 	var adapters []Adapter
 	for _, id := range req.Modules {
 		a, ok := adapterEntries.m[id]
@@ -414,7 +419,7 @@ func handleLinkPost(r *http.Request) routeResponse {
 		}
 		adapters = append(adapters, a)
 	}
-	id, err := adapterEntries.patchPanel.Connect(adapters[0], adapters[1])
+	id, err := adapterEntries.patchPanel.Connect(adapters[0], adapters[1], req.Interfaces[0], req.Interfaces[1])
 	if err != nil {
 		panic(err)
 	}
@@ -435,16 +440,52 @@ func handleLinkDelete(r *http.Request) routeResponse {
 	return routeResponse{}
 }
 
+type interfaceEntry struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+}
+
 func handleModuleInterfaceList(r *http.Request) routeResponse {
-	return routeResponse{}
+	id := getRequestVar(r, "moduleId")
+	adapter, ok := adapterEntries.m[id]
+	if !ok {
+		return notFound()
+	}
+	interfaces := []*interfaceEntry{}
+	for ifc := range adapter.Interfaces() {
+		interfaces = append(interfaces, &interfaceEntry{
+			Id:   fmt.Sprintf("%d", ifc.ID()),
+			Name: ifc.Name(),
+		})
+	}
+	return routeResponse{body: interfaces}
 }
 func handleModuleInterfaceGet(r *http.Request) routeResponse {
-	return routeResponse{}
+	id := getRequestVar(r, "moduleId")
+	adapter, ok := adapterEntries.m[id]
+	if !ok {
+		return notFound()
+	}
+	ifcId := getRequestVar(r, "interfaceId")
+	ifc := adapter.InterfaceByName(ifcId)
+	if ifc == nil {
+		return notFound()
+	}
+	return routeResponse{body: &interfaceEntry{
+		Id:   fmt.Sprintf("%d", ifc.ID()),
+		Name: ifc.Name(),
+	}}
 }
 
 func NewServer() http.Handler {
 	Info.Println("IOVisor HTTP Daemon starting...")
 	rtr := mux.NewRouter()
+
+	// modules
+	// modules/{moduleId}/interfaces
+	// modules/{moduleId}/tables
+	// modules/{moduleId}/tables/{tableId}/entries
+	// links
 
 	mod := rtr.PathPrefix("/modules").Subrouter()
 	mod.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleList))
@@ -453,13 +494,13 @@ func NewServer() http.Handler {
 	mod.Methods("PUT").Path("/{moduleId}").HandlerFunc(makeHandler(handleModulePut))
 	mod.Methods("DELETE").Path("/{moduleId}").HandlerFunc(makeHandler(handleModuleDelete))
 
-	tbl := mod.PathPrefix("/{moduleId}/tables").Subrouter()
-	tbl.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleTableList))
-	tbl.Methods("GET").Path("/{tableId}").HandlerFunc(makeHandler(handleModuleTableGet))
-
 	ifc := mod.PathPrefix("/{moduleId}/interfaces").Subrouter()
 	ifc.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleInterfaceList))
 	ifc.Methods("GET").Path("/{interfaceId}").HandlerFunc(makeHandler(handleModuleInterfaceGet))
+
+	tbl := mod.PathPrefix("/{moduleId}/tables").Subrouter()
+	tbl.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleTableList))
+	tbl.Methods("GET").Path("/{tableId}").HandlerFunc(makeHandler(handleModuleTableGet))
 
 	ent := tbl.PathPrefix("/{tableId}/entries").Subrouter()
 	ent.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleTableEntryList))
@@ -468,12 +509,12 @@ func NewServer() http.Handler {
 	ent.Methods("PUT").Path("/{entryId}").HandlerFunc(makeHandler(handleModuleTableEntryPut))
 	ent.Methods("DELETE").Path("/{entryId}").HandlerFunc(makeHandler(handleModuleTableEntryDelete))
 
-	con := rtr.PathPrefix("/links").Subrouter()
-	con.Methods("GET").Path("/").HandlerFunc(makeHandler(handleLinkList))
-	con.Methods("POST").Path("/").HandlerFunc(makeHandler(handleLinkPost))
-	con.Methods("GET").Path("/{connId}").HandlerFunc(makeHandler(handleLinkGet))
-	con.Methods("PUT").Path("/{connId}").HandlerFunc(makeHandler(handleLinkPut))
-	con.Methods("DELETE").Path("/{connId}").HandlerFunc(makeHandler(handleLinkDelete))
+	lnk := rtr.PathPrefix("/links").Subrouter()
+	lnk.Methods("GET").Path("/").HandlerFunc(makeHandler(handleLinkList))
+	lnk.Methods("POST").Path("/").HandlerFunc(makeHandler(handleLinkPost))
+	lnk.Methods("GET").Path("/{connId}").HandlerFunc(makeHandler(handleLinkGet))
+	lnk.Methods("PUT").Path("/{connId}").HandlerFunc(makeHandler(handleLinkPut))
+	lnk.Methods("DELETE").Path("/{connId}").HandlerFunc(makeHandler(handleLinkDelete))
 
 	return rtr
 }

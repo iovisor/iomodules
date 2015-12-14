@@ -123,7 +123,8 @@ func TestModuleConnect(t *testing.T) {
 		name: "connect",
 		url:  srv.URL + "/links/",
 		body: wrapObject(map[string]interface{}{
-			"modules": []string{t1.Id, t2.Id},
+			"modules":    []string{t1.Id, t2.Id},
+			"interfaces": []string{"", ""},
 		}),
 		code: http.StatusOK,
 	})
