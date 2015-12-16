@@ -34,6 +34,7 @@ int handle_rx_wrapper(struct __sk_buff *skb) {
     case RX_REDIRECT:
       break;
     case RX_RECIRCULATE:
+      modules.call(skb, 1);
       break;
     case RX_DROP:
       return TC_ACT_SHOT;

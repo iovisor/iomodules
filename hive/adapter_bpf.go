@@ -213,6 +213,9 @@ func (adapter *BpfAdapter) Init() error {
 	if err := t.Set("0", fmt.Sprintf("%d", adapter.patchPanel.FD())); err != nil {
 		return err
 	}
+	if err := t.Set("1", fmt.Sprintf("%d", fd)); err != nil {
+		return err
+	}
 	return adapter.patchPanel.Register(adapter, fd)
 }
 

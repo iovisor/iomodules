@@ -40,6 +40,18 @@ static int handle_rx(void *pkt, struct metadata *md) {
 	return RX_OK;
 }
 `
+
+	redirectC = `
+#include "iomodule.h"
+BPF_TABLE("array", int, int, redirect, 10);
+static int handle_rx(void *pkt, struct metadata *md) {
+	if (md->in_ifc == 1)
+		pkt_redirect(pkt, md, 2);
+	else
+		pkt_redirect(pkt, md, 1);
+	return RX_REDIRECT;
+}
+`
 )
 
 type testCase struct {
