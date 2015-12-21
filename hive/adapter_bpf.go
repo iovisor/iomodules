@@ -25,6 +25,7 @@ import (
 )
 
 /*
+#cgo CFLAGS: -I/usr/include/bcc/compat
 #cgo LDFLAGS: -lbcc
 #include <bcc/bpf_common.h>
 #include <bcc/libbpf.h>
@@ -213,6 +214,7 @@ func (adapter *BpfAdapter) Init() error {
 	if err := t.Set("0", fmt.Sprintf("%d", adapter.patchPanel.FD())); err != nil {
 		return err
 	}
+	// set callback for recirculate
 	if err := t.Set("1", fmt.Sprintf("%d", fd)); err != nil {
 		return err
 	}
