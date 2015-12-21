@@ -63,7 +63,9 @@ int recv_netdev(struct __sk_buff *skb) {
     return TC_ACT_SHOT;
   }
 
-  *md = (struct metadata){};
+  *md = (struct metadata){
+    .pktlen = skb->len,
+  };
   return invoke_module(skb, md, link);
 }
 

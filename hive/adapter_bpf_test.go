@@ -24,13 +24,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
-	"runtime"
 	"sync"
 	"testing"
 	_ "time"
 
 	"github.com/vishvananda/netlink"
-	"github.com/vishvananda/netns"
 )
 
 var (
@@ -110,7 +108,7 @@ func TestModuleCreate(t *testing.T) {
 		},
 	}
 	for _, test := range testValues {
-		testOne(t, test)
+		testOne(t, test, nil)
 	}
 }
 
@@ -118,26 +116,19 @@ func TestModuleConnect(t *testing.T) {
 	srv := httptest.NewServer(NewServer())
 	defer srv.Close()
 
-	var t1 moduleEntry
-	var t2 moduleEntry
-	rsp1 := testOne(t, testCase{
+	var t1, t2 moduleEntry
+	testOne(t, testCase{
 		name: "trivial1",
 		url:  srv.URL + "/modules/",
 		body: wrapCode(trivialC),
 		code: http.StatusOK,
-	})
-	if err := json.Unmarshal(rsp1, &t1); err != nil {
-		t.Error(err)
-	}
-	rsp2 := testOne(t, testCase{
+	}, &t1)
+	testOne(t, testCase{
 		name: "trivial2",
 		url:  srv.URL + "/modules/",
 		body: wrapCode(trivialC),
 		code: http.StatusOK,
-	})
-	if err := json.Unmarshal(rsp2, &t2); err != nil {
-		t.Error(err)
-	}
+	}, &t2)
 	testOne(t, testCase{
 		name: "connect",
 		url:  srv.URL + "/links/",
@@ -146,145 +137,36 @@ func TestModuleConnect(t *testing.T) {
 			"interfaces": []string{"", ""},
 		}),
 		code: http.StatusOK,
-	})
-}
-
-func nsContext() func() {
-	runtime.LockOSThread()
-	return func() {
-		netns.Set(initNs)
-		runtime.UnlockOSThread()
-	}
-}
-
-var (
-	initNs netns.NsHandle
-)
-
-func init() {
-	initNs, _ = netns.Get()
-}
-
-func runInNs(fd netns.NsHandle, fn func() error) error {
-	defer nsContext()()
-	if err := netns.Set(fd); err != nil {
-		return err
-	}
-	if err := fn(); err != nil {
-		return err
-	}
-	return nil
-}
-
-func newVeth(name, dstName, ip string, n netns.NsHandle) (link *netlink.Veth, err error) {
-	l := &netlink.Veth{
-		LinkAttrs: netlink.LinkAttrs{
-			Name: name,
-		},
-		PeerName: name + "_",
-	}
-	if err = netlink.LinkAdd(l); err != nil {
-		return
-	}
-	defer func() {
-		if err != nil {
-			netlink.LinkDel(l)
-		}
-	}()
-
-	otherL, err := netlink.LinkByName(l.PeerName)
-	if err != nil {
-		return
-	}
-	if err = netlink.LinkSetNsFd(otherL, int(n)); err != nil {
-		return
-	}
-	err = runInNs(n, func() error {
-		lo, err := netlink.LinkByName("lo")
-		if err != nil {
-			return err
-		}
-		err = netlink.LinkSetUp(lo)
-		if err != nil {
-			return err
-		}
-		l, err := netlink.LinkByName(name + "_")
-		if err != nil {
-			return err
-		}
-		if err = netlink.LinkSetName(l, dstName); err != nil {
-			return err
-		}
-		l.Attrs().Name = dstName
-		a, err := netlink.ParseIPNet(ip)
-		if err != nil {
-			return err
-		}
-		if err := netlink.AddrAdd(l, &netlink.Addr{IPNet: a}); err != nil {
-			return err
-		}
-		if err = netlink.LinkSetUp(l); err != nil {
-			return err
-		}
-		return nil
-	})
-	if err != nil {
-		return
-	}
-	if err = netlink.LinkSetUp(l); err != nil {
-		return
-	}
-	link = l
-	return
-}
-
-func newNs() netns.NsHandle {
-	runtime.LockOSThread()
-	origns, err := netns.Get()
-	if err != nil {
-		panic(err)
-	}
-	newNs, err := netns.New()
-	if err != nil {
-		panic(err)
-	}
-	if err := netns.Set(origns); err != nil {
-		panic(err)
-	}
-	runtime.UnlockOSThread()
-	return newNs
+	}, nil)
 }
 
 func TestModuleRedirect(t *testing.T) {
 	srv := httptest.NewServer(NewServer())
 	defer srv.Close()
 
-	testns1 := newNs()
+	testns1 := NewNs()
 	defer testns1.Close()
-	testns2 := newNs()
+	testns2 := NewNs()
 	defer testns2.Close()
 
-	l1, err := newVeth("ns1", "eth0", "10.10.1.1/24", testns1)
+	l1, err := NewVeth(testns1, "ns1", "eth0", "10.10.1.1/24", nil)
 	if err != nil {
 		t.Error(err)
 	}
 	defer netlink.LinkDel(l1)
-	l2, err := newVeth("ns2", "eth0", "10.10.1.2/24", testns2)
+	l2, err := NewVeth(testns2, "ns2", "eth0", "10.10.1.2/24", nil)
 	if err != nil {
 		t.Error(err)
 	}
 	defer netlink.LinkDel(l2)
 
 	var t1 moduleEntry
-	rsp1 := testOne(t, testCase{
+	testOne(t, testCase{
 		name: "redirect",
 		url:  srv.URL + "/modules/",
 		body: wrapCode(redirectC),
 		code: http.StatusOK,
-	})
-	if err := json.Unmarshal(rsp1, &t1); err != nil {
-		t.Error(err)
-	}
+	}, &t1)
 
 	testOne(t, testCase{
 		name: "connect",
@@ -294,7 +176,7 @@ func TestModuleRedirect(t *testing.T) {
 			"interfaces": []string{"", l1.Name},
 		}),
 		code: http.StatusOK,
-	})
+	}, nil)
 
 	testOne(t, testCase{
 		name: "connect",
@@ -304,29 +186,26 @@ func TestModuleRedirect(t *testing.T) {
 			"interfaces": []string{"", l2.Name},
 		}),
 		code: http.StatusOK,
-	})
+	}, nil)
 	var wg sync.WaitGroup
-	go func() {
-		runInNs(testns1, func() error {
-			_, err := exec.Command("ping", "-c", "1", "10.10.1.2").Output()
-			if err != nil {
-				t.Error(err)
-			}
-			return nil
-		})
-		wg.Done()
-	}()
+	go RunInNs(testns1, func() error {
+		defer wg.Done()
+		out, err := exec.Command("ping", "-c", "1", "10.10.1.2").Output()
+		if err != nil {
+			t.Error(string(out), err)
+		}
+		return nil
+	})
 	wg.Add(1)
 	wg.Wait()
-	//time.Sleep(10 * time.Second)
 }
 
-func testOne(t *testing.T, test testCase) []byte {
+func testOne(t *testing.T, test testCase, rsp interface{}) []byte {
 	client := &http.Client{}
 
 	resp, err := client.Post(test.url, "application/json", test.body)
 	if err != nil {
-		panic(err)
+		t.Error(err)
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
@@ -335,6 +214,11 @@ func testOne(t *testing.T, test testCase) []byte {
 	}
 	if resp.StatusCode != test.code {
 		t.Errorf("Expected %d, got %d", test.code, resp.StatusCode)
+	}
+	if rsp != nil {
+		if err := json.Unmarshal(body, rsp); err != nil {
+			t.Error(err)
+		}
 	}
 	return body
 }
