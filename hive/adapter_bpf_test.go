@@ -19,11 +19,13 @@ package hive
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
+	"strings"
 	"sync"
 	"testing"
 	_ "time"
@@ -50,17 +52,17 @@ static int handle_rx(void *pkt, struct metadata *md) {
 #include "iomodule.h"
 BPF_TABLE("array", int, int, redirect, 10);
 static int handle_rx(void *pkt, struct metadata *md) {
-	if (md->in_ifc == 1)
-		pkt_redirect(pkt, md, 2);
-	else
-		pkt_redirect(pkt, md, 1);
+	int in_ifc = md->in_ifc;
+	int *out_ifc = redirect.lookup(&in_ifc);
+	if (!out_ifc)
+		return RX_DROP;
+	pkt_redirect(pkt, md, *out_ifc);
 	return RX_REDIRECT;
 }
 `
 )
 
 type testCase struct {
-	name string    // name of the test
 	url  string    // url of the request
 	body io.Reader // body of the request
 	code int       // expected pass criteria
@@ -95,13 +97,11 @@ func TestModuleCreate(t *testing.T) {
 
 	testValues := []testCase{
 		{
-			name: "trivial",
 			url:  srv.URL + "/modules/",
 			body: wrapCode(trivialC),
 			code: http.StatusOK,
 		},
 		{
-			name: "error",
 			url:  srv.URL + "/modules/",
 			body: wrapCode(errorC),
 			code: http.StatusBadRequest,
@@ -118,20 +118,17 @@ func TestModuleConnect(t *testing.T) {
 
 	var t1, t2 moduleEntry
 	testOne(t, testCase{
-		name: "trivial1",
 		url:  srv.URL + "/modules/",
 		body: wrapCode(trivialC),
 		code: http.StatusOK,
 	}, &t1)
 	testOne(t, testCase{
-		name: "trivial2",
 		url:  srv.URL + "/modules/",
 		body: wrapCode(trivialC),
 		code: http.StatusOK,
 	}, &t2)
 	testOne(t, testCase{
-		name: "connect",
-		url:  srv.URL + "/links/",
+		url: srv.URL + "/links/",
 		body: wrapObject(map[string]interface{}{
 			"modules":    []string{t1.Id, t2.Id},
 			"interfaces": []string{"", ""},
@@ -162,15 +159,13 @@ func TestModuleRedirect(t *testing.T) {
 
 	var t1 moduleEntry
 	testOne(t, testCase{
-		name: "redirect",
 		url:  srv.URL + "/modules/",
 		body: wrapCode(redirectC),
 		code: http.StatusOK,
 	}, &t1)
 
 	testOne(t, testCase{
-		name: "connect",
-		url:  srv.URL + "/links/",
+		url: srv.URL + "/links/",
 		body: wrapObject(map[string]interface{}{
 			"modules":    []string{t1.Id, "host"},
 			"interfaces": []string{"", l1.Name},
@@ -179,12 +174,23 @@ func TestModuleRedirect(t *testing.T) {
 	}, nil)
 
 	testOne(t, testCase{
-		name: "connect",
-		url:  srv.URL + "/links/",
+		url: srv.URL + "/links/",
 		body: wrapObject(map[string]interface{}{
 			"modules":    []string{t1.Id, "host"},
 			"interfaces": []string{"", l2.Name},
 		}),
+		code: http.StatusOK,
+	}, nil)
+
+	testOne(t, testCase{
+		url:  srv.URL + fmt.Sprintf("/modules/%s/tables/redirect/entries/", t1.Id),
+		body: strings.NewReader(`{ "key": "1", "value": "2" }`),
+		code: http.StatusOK,
+	}, nil)
+
+	testOne(t, testCase{
+		url:  srv.URL + fmt.Sprintf("/modules/%s/tables/redirect/entries/", t1.Id),
+		body: strings.NewReader(`{ "key": "2", "value": "1" }`),
 		code: http.StatusOK,
 	}, nil)
 	var wg sync.WaitGroup
@@ -200,7 +206,7 @@ func TestModuleRedirect(t *testing.T) {
 	wg.Wait()
 }
 
-func testOne(t *testing.T, test testCase, rsp interface{}) []byte {
+func testOne(t *testing.T, test testCase, rsp interface{}) {
 	client := &http.Client{}
 
 	resp, err := client.Post(test.url, "application/json", test.body)
@@ -220,5 +226,4 @@ func testOne(t *testing.T, test testCase, rsp interface{}) []byte {
 			t.Error(err)
 		}
 	}
-	return body
 }

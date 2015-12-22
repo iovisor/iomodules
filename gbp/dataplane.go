@@ -20,8 +20,7 @@ import (
 
 var filterImplC string = `
 #include "iomodule.h"
-static int rx_handler(void *pkt, struct metadata *md) {
-  // fill me in
+static int handle_rx(void *pkt, struct metadata *md) {
   return RX_OK;
 }
 `

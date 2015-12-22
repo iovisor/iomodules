@@ -15,6 +15,7 @@
 package gbp
 
 import (
+	"encoding/json"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -149,7 +150,6 @@ var testPolicy string = `
 `
 
 type testCase struct {
-	name string // name of the test
 	url  string // url of the request
 	body string // body of the request
 	code int    // expected pass criteria
@@ -160,18 +160,17 @@ func TestPolicy(t *testing.T) {
 	defer srv.Close()
 	testValues := []testCase{
 		{
-			name: "1",
 			url:  srv.URL + "/policies/",
 			body: testPolicy,
 			code: http.StatusOK,
 		},
 	}
 	for _, test := range testValues {
-		testOne(t, test)
+		testOne(t, test, nil)
 	}
 }
 
-func testOne(t *testing.T, test testCase) {
+func testOne(t *testing.T, test testCase, rsp interface{}) {
 	client := &http.Client{}
 
 	r := strings.NewReader(test.body)
@@ -186,5 +185,10 @@ func testOne(t *testing.T, test testCase) {
 	}
 	if resp.StatusCode != test.code {
 		t.Errorf("Expected %d, got %d", test.code, resp.StatusCode)
+	}
+	if rsp != nil {
+		if err := json.Unmarshal(body, rsp); err != nil {
+			t.Error(err)
+		}
 	}
 }
