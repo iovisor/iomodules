@@ -136,15 +136,17 @@ int recv_tailcall(struct __sk_buff *skb) {
   if (!md)
     return TC_ACT_SHOT;
 
-  struct link_key lkey = {
-    .module_id = md->module_id,
-    .ifc = md->redir_ifc,
-  };
-  struct link *link = links.lookup(&lkey);
-  if (!link)
-    return TC_ACT_SHOT;
-
-  return invoke_module(skb, md, link);
+  if (md->redir_ifc) {
+    struct link_key lkey = {
+      .module_id = md->module_id,
+      .ifc = md->redir_ifc,
+    };
+    struct link *link = links.lookup(&lkey);
+    if (!link)
+      return TC_ACT_SHOT;
+    return invoke_module(skb, md, link);
+  }
+  return TC_ACT_OK;
 }
 `
 
