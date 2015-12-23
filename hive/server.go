@@ -21,7 +21,6 @@ type handlerFunc func(r *http.Request) routeResponse
 
 func makeHandler(fn handlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		Info.Printf("%s %s\n", r.Method, r.URL)
 		defer func() {
 			if r := recover(); r != nil {
 				switch err := r.(type) {
@@ -39,7 +38,8 @@ func makeHandler(fn handlerFunc) http.HandlerFunc {
 		}()
 
 		rsp := fn(r)
-		sendReply(w, r, rsp)
+		sendReply(w, r, &rsp)
+		Info.Printf("%s %s %d\n", r.Method, r.URL, rsp.statusCode)
 		return
 	}
 }
@@ -51,7 +51,7 @@ func notFound() routeResponse {
 	return routeResponse{statusCode: http.StatusNotFound}
 }
 
-func sendReply(w http.ResponseWriter, r *http.Request, rsp routeResponse) {
+func sendReply(w http.ResponseWriter, r *http.Request, rsp *routeResponse) {
 	if rsp.body != nil {
 		if len(rsp.contentType) != 0 {
 			w.Header().Set("Content-Type", rsp.contentType)
@@ -60,6 +60,9 @@ func sendReply(w http.ResponseWriter, r *http.Request, rsp routeResponse) {
 		}
 	}
 	switch {
+	case rsp.statusCode == 0:
+		w.WriteHeader(http.StatusOK)
+		rsp.statusCode = http.StatusOK
 	case 100 <= rsp.statusCode && rsp.statusCode < 300:
 		w.WriteHeader(rsp.statusCode)
 	case 300 <= rsp.statusCode && rsp.statusCode < 400:

@@ -15,11 +15,15 @@
 package gbp
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/http"
 	"sync"
 )
 
 var filterImplC string = `
-#include "iomodule.h"
 static int handle_rx(void *pkt, struct metadata *md) {
   return RX_OK;
 }
@@ -32,15 +36,60 @@ func init() {
 }
 
 type Dataplane struct {
-	mtx sync.RWMutex
+	mtx    sync.RWMutex
+	client *http.Client
+	url    string
+	id     string
 }
 
 func NewDataplane() *Dataplane {
-	return &Dataplane{}
+	client := &http.Client{}
+	return &Dataplane{client: client}
 }
 
-func (dp *Dataplane) Init() error {
+type moduleEntry struct {
+	Id          string                 `json:"id"`
+	ModuleType  string                 `json:"module_type"`
+	DisplayName string                 `json:"display_name"`
+	Perm        string                 `json:"permissions"`
+	Config      map[string]interface{} `json:"config"`
+}
+
+func (dp *Dataplane) Init(url string) error {
+	dp.url = url
+	b, err := json.Marshal(map[string]interface{}{
+		"module_type":  "bpf",
+		"display_name": "gbp",
+		"config": map[string]interface{}{
+			"code": filterImplC,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	resp, err := dp.client.Post(dp.url+"/modules/", "application/json", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		if body, err := ioutil.ReadAll(resp.Body); err != nil {
+			Error.Print(string(body))
+		}
+		return fmt.Errorf("module server returned %s", resp.Status)
+	}
+
+	var entry moduleEntry
+	if err := json.NewDecoder(resp.Body).Decode(&entry); err != nil {
+		return err
+	}
+	Debug.Printf("gbp id %s\n", entry.Id)
+	dp.id = entry.Id
 	return nil
+}
+
+func (dp *Dataplane) Id() string {
+	return dp.id
 }
 
 func (dp *Dataplane) Close() error {

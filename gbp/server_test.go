@@ -17,6 +17,7 @@ package gbp
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -185,24 +186,24 @@ for i in ${images[@]}; do
 done
 `
 
-func runCommand(cmd, input string) (out string, err error) {
+func runCommand(cmd string, input io.Reader) (out string, err error) {
 	cmds := strings.Split(cmd, " ")
 	c := exec.Command(cmds[0], cmds[1:]...)
-	if len(input) != 0 {
-		c.Stdin = strings.NewReader(input)
+	if input != nil {
+		c.Stdin = input
 	}
-	var stdbuf, errbuf bytes.Buffer
-	c.Stdout, c.Stderr = &stdbuf, &errbuf
+	var outbuf, errbuf bytes.Buffer
+	c.Stdout, c.Stderr = &outbuf, &errbuf
 	err = c.Run()
 	if err != nil {
 		Error.Print(errbuf.String())
 		return
 	}
-	out = strings.TrimSpace(stdbuf.String())
+	out = strings.TrimSpace(outbuf.String())
 	return
 }
 
-func runTestCommand(t *testing.T, cmd, input string) string {
+func runTestCommand(t *testing.T, cmd string, input io.Reader) string {
 	out, err := runCommand(cmd, input)
 	if err != nil {
 		t.Error(err)
@@ -214,16 +215,19 @@ func runTestCommand(t *testing.T, cmd, input string) string {
 // created during the subscription window.
 func gatherLinks(ch <-chan netlink.LinkUpdate) ([]netlink.Link, error) {
 	linkSet := make(map[int32]bool)
-	timeout := time.After(200 * time.Millisecond)
+	timeout := time.After(500 * time.Millisecond)
+	Debug.Printf("Waiting for link updates\n")
 outer:
 	for {
 		select {
 		case update := <-ch:
 			if update.Header.Type == syscall.RTM_NEWLINK {
 				if _, ok := update.Link.(*netlink.Veth); ok {
+					Debug.Printf("NEWLINK %d\n", update.Index)
 					linkSet[update.Index] = true
 				}
 			} else if update.Header.Type == syscall.RTM_DELLINK {
+				Debug.Printf("DELLINK %d\n", update.Index)
 				delete(linkSet, update.Index)
 			}
 		case <-timeout:
@@ -244,19 +248,22 @@ outer:
 func gatherOneLink(t *testing.T, ch <-chan netlink.LinkUpdate) netlink.Link {
 	links, err := gatherLinks(ch)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	if len(links) != 1 {
-		t.Error("could not determine veth belonging to container (len == %d)", len(links))
+		t.Fatalf("could not determine veth belonging to container (len == %d)", len(links))
 	}
 	return links[0]
 }
 
 func TestInterfaces(t *testing.T) {
-	srv := httptest.NewServer(NewServer())
-	defer srv.Close()
 	hive := httptest.NewServer(hive.NewServer())
 	defer hive.Close()
+	if err := dataplane.Init(hive.URL); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(NewServer())
+	defer srv.Close()
 
 	// launch one policy dataplane
 	testOne(t, testCase{
@@ -266,7 +273,7 @@ func TestInterfaces(t *testing.T) {
 	}, nil)
 
 	// set up docker prereqs
-	runTestCommand(t, "bash -ex", dockerSetup)
+	runTestCommand(t, "bash -ex", strings.NewReader(dockerSetup))
 
 	// monitor for netlink updates to find docker veth
 	ch, done := make(chan netlink.LinkUpdate), make(chan struct{})
@@ -275,18 +282,53 @@ func TestInterfaces(t *testing.T) {
 		t.Error(err)
 	}
 
+	id1, id2 := "TestInterfaces-1", "TestInterfaces-2"
 	// spawn one test server process
-	id1 := runTestCommand(t, "docker run -d moutten/iperf", "")
-	defer runCommand("docker rm -f "+id1, "")
+	runTestCommand(t, "docker run --name="+id1+" -d moutten/iperf", nil)
+	defer runCommand("docker rm -f "+id1, nil)
 
-	link := gatherOneLink(t, ch)
-	Debug.Printf("new docker link %s\n", link.Attrs().Name)
+	link1 := gatherOneLink(t, ch)
+	testOne(t, testCase{
+		url: hive.URL + "/links/",
+		body: strings.NewReader(fmt.Sprintf(
+			`{"modules": ["host", "%s"], "interfaces": ["%s", ""]}`,
+			dataplane.Id(), link1.Attrs().Name)),
+		code: http.StatusOK,
+	}, nil)
 
 	// find the ip of the test server
-	ip1 := runTestCommand(t, "docker inspect -f {{.NetworkSettings.IPAddress}} "+id1, "")
+	ip1 := runTestCommand(t, "docker inspect -f {{.NetworkSettings.IPAddress}} "+id1, nil)
 
 	// start a test client
-	Debug.Printf("\n%s", runTestCommand(t, "docker run --rm moutten/iperf iperf -t 2 -c "+ip1, ""))
+	c := exec.Command("docker", "run", "-i", "--name="+id2, "--entrypoint", "/bin/sh", "moutten/iperf", "-ex")
+	var inPipe *io.PipeWriter
+	var out bytes.Buffer
+	c.Stdin, inPipe = io.Pipe()
+	c.Stdout, c.Stderr = &out, &out
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer runCommand("docker rm -f "+id2, nil)
+
+	link2 := gatherOneLink(t, ch)
+	testOne(t, testCase{
+		url: hive.URL + "/links/",
+		body: strings.NewReader(fmt.Sprintf(
+			`{"modules": ["host", "%s"], "interfaces": ["%s", ""]}`,
+			dataplane.Id(), link2.Attrs().Name)),
+		code: http.StatusOK,
+	}, nil)
+
+	inPipe.Write([]byte("iperf -t 2 -c " + ip1 + "\n"))
+	inPipe.Close()
+	Debug.Println("waiting for command to exit")
+	err := c.Wait()
+	Debug.Println("done waiting for command to exit")
+	if err != nil {
+		Error.Print(out.String())
+		t.Fatal(err)
+	}
+	Debug.Print(out.String())
 }
 
 func testOne(t *testing.T, test testCase, rsp interface{}) {
