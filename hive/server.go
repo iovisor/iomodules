@@ -109,9 +109,10 @@ type AdapterEntries struct {
 
 var (
 	adapterEntries AdapterEntries
+	initServerOnce sync.Once
 )
 
-func init() {
+func initServerVars() {
 	adapterEntries.m = make(map[string]Adapter)
 	var err error
 	adapterEntries.patchPanel, err = NewPatchPanel()
@@ -478,6 +479,8 @@ func handleModuleInterfaceGet(r *http.Request) routeResponse {
 }
 
 func NewServer() http.Handler {
+	initServerOnce.Do(initServerVars)
+
 	Info.Println("IOVisor HTTP Daemon starting...")
 	rtr := mux.NewRouter()
 

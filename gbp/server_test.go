@@ -15,12 +15,20 @@
 package gbp
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
+
+	"github.com/iovisor/iomodules/hive"
+	"github.com/vishvananda/netlink"
 )
 
 var testPolicy string = `
@@ -150,18 +158,18 @@ var testPolicy string = `
 `
 
 type testCase struct {
-	url  string // url of the request
-	body string // body of the request
-	code int    // expected pass criteria
+	url  string    // url of the request
+	body io.Reader // body of the request
+	code int       // expected pass criteria
 }
 
-func TestPolicy(t *testing.T) {
+func TestBasicPolicy(t *testing.T) {
 	srv := httptest.NewServer(NewServer())
 	defer srv.Close()
 	testValues := []testCase{
 		{
 			url:  srv.URL + "/policies/",
-			body: testPolicy,
+			body: strings.NewReader(testPolicy),
 			code: http.StatusOK,
 		},
 	}
@@ -170,15 +178,125 @@ func TestPolicy(t *testing.T) {
 	}
 }
 
+var dockerSetup string = `
+images=(gliderlabs/alpine moutten/iperf)
+for i in ${images[@]}; do
+  [[ $(docker images -q $i) != "" ]] || docker pull $i
+done
+`
+
+func runCommand(cmd, input string) (out string, err error) {
+	cmds := strings.Split(cmd, " ")
+	c := exec.Command(cmds[0], cmds[1:]...)
+	if len(input) != 0 {
+		c.Stdin = strings.NewReader(input)
+	}
+	var stdbuf, errbuf bytes.Buffer
+	c.Stdout, c.Stderr = &stdbuf, &errbuf
+	err = c.Run()
+	if err != nil {
+		Error.Print(errbuf.String())
+		return
+	}
+	out = strings.TrimSpace(stdbuf.String())
+	return
+}
+
+func runTestCommand(t *testing.T, cmd, input string) string {
+	out, err := runCommand(cmd, input)
+	if err != nil {
+		t.Error(err)
+	}
+	return out
+}
+
+// gatherLinks listens for netlink notifications and collects the list of links
+// created during the subscription window.
+func gatherLinks(ch <-chan netlink.LinkUpdate) ([]netlink.Link, error) {
+	linkSet := make(map[int32]bool)
+	timeout := time.After(200 * time.Millisecond)
+outer:
+	for {
+		select {
+		case update := <-ch:
+			if update.Header.Type == syscall.RTM_NEWLINK {
+				if _, ok := update.Link.(*netlink.Veth); ok {
+					linkSet[update.Index] = true
+				}
+			} else if update.Header.Type == syscall.RTM_DELLINK {
+				delete(linkSet, update.Index)
+			}
+		case <-timeout:
+			break outer
+		}
+	}
+	links := []netlink.Link{}
+	for index, _ := range linkSet {
+		l, err := netlink.LinkByIndex(int(index))
+		if err == nil {
+			links = append(links, l)
+		}
+
+	}
+	return links, nil
+}
+
+func gatherOneLink(t *testing.T, ch <-chan netlink.LinkUpdate) netlink.Link {
+	links, err := gatherLinks(ch)
+	if err != nil {
+		t.Error(err)
+	}
+	if len(links) != 1 {
+		t.Error("could not determine veth belonging to container (len == %d)", len(links))
+	}
+	return links[0]
+}
+
+func TestInterfaces(t *testing.T) {
+	srv := httptest.NewServer(NewServer())
+	defer srv.Close()
+	hive := httptest.NewServer(hive.NewServer())
+	defer hive.Close()
+
+	// launch one policy dataplane
+	testOne(t, testCase{
+		url:  srv.URL + "/policies/",
+		body: strings.NewReader(testPolicy),
+		code: http.StatusOK,
+	}, nil)
+
+	// set up docker prereqs
+	runTestCommand(t, "bash -ex", dockerSetup)
+
+	// monitor for netlink updates to find docker veth
+	ch, done := make(chan netlink.LinkUpdate), make(chan struct{})
+	defer close(done)
+	if err := netlink.LinkSubscribe(ch, done); err != nil {
+		t.Error(err)
+	}
+
+	// spawn one test server process
+	id1 := runTestCommand(t, "docker run -d moutten/iperf", "")
+	defer runCommand("docker rm -f "+id1, "")
+
+	link := gatherOneLink(t, ch)
+	Debug.Printf("new docker link %s\n", link.Attrs().Name)
+
+	// find the ip of the test server
+	ip1 := runTestCommand(t, "docker inspect -f {{.NetworkSettings.IPAddress}} "+id1, "")
+
+	// start a test client
+	Debug.Printf("\n%s", runTestCommand(t, "docker run --rm moutten/iperf iperf -t 2 -c "+ip1, ""))
+}
+
 func testOne(t *testing.T, test testCase, rsp interface{}) {
 	client := &http.Client{}
 
-	r := strings.NewReader(test.body)
-	resp, err := client.Post(test.url, "application/json", r)
+	resp, err := client.Post(test.url, "application/json", test.body)
 	if err != nil {
 		panic(err)
 	}
-	_, err = ioutil.ReadAll(resp.Body)
+	body, err := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
 	if err != nil {
 		t.Error(err)
