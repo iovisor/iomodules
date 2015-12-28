@@ -203,10 +203,23 @@ func runCommand(cmd string, input io.Reader) (out string, err error) {
 	return
 }
 
+func startCommand(t *testing.T, cmd string) (*exec.Cmd, *io.PipeWriter, *bytes.Buffer) {
+	out := &bytes.Buffer{}
+	rpipe, wpipe := io.Pipe()
+	cmds := strings.Split(cmd, " ")
+	c := exec.Command(cmds[0], cmds[1:]...)
+	c.Stdin, c.Stdout, c.Stderr = rpipe, out, out
+	err := c.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c, wpipe, out
+}
+
 func runTestCommand(t *testing.T, cmd string, input io.Reader) string {
 	out, err := runCommand(cmd, input)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	return out
 }
@@ -223,11 +236,9 @@ outer:
 		case update := <-ch:
 			if update.Header.Type == syscall.RTM_NEWLINK {
 				if _, ok := update.Link.(*netlink.Veth); ok {
-					Debug.Printf("NEWLINK %d\n", update.Index)
 					linkSet[update.Index] = true
 				}
 			} else if update.Header.Type == syscall.RTM_DELLINK {
-				Debug.Printf("DELLINK %d\n", update.Index)
 				delete(linkSet, update.Index)
 			}
 		case <-timeout:
@@ -300,17 +311,14 @@ func TestInterfaces(t *testing.T) {
 	ip1 := runTestCommand(t, "docker inspect -f {{.NetworkSettings.IPAddress}} "+id1, nil)
 
 	// start a test client
-	c := exec.Command("docker", "run", "-i", "--name="+id2, "--entrypoint", "/bin/sh", "moutten/iperf", "-ex")
-	var inPipe *io.PipeWriter
-	var out bytes.Buffer
-	c.Stdin, inPipe = io.Pipe()
-	c.Stdout, c.Stderr = &out, &out
-	if err := c.Start(); err != nil {
-		t.Fatal(err)
-	}
+	clientCmd, clientStdin, clientOutput := startCommand(t, "docker run -i --name="+id2+" --entrypoint /bin/sh moutten/iperf -ex")
 	defer runCommand("docker rm -f "+id2, nil)
 
 	link2 := gatherOneLink(t, ch)
+
+	ip2 := runTestCommand(t, "docker inspect -f {{.NetworkSettings.IPAddress}} "+id2, nil)
+	Debug.Printf("ip2=%s\n", ip2)
+
 	testOne(t, testCase{
 		url: hive.URL + "/links/",
 		body: strings.NewReader(fmt.Sprintf(
@@ -319,16 +327,13 @@ func TestInterfaces(t *testing.T) {
 		code: http.StatusOK,
 	}, nil)
 
-	inPipe.Write([]byte("iperf -t 2 -c " + ip1 + "\n"))
-	inPipe.Close()
-	Debug.Println("waiting for command to exit")
-	err := c.Wait()
-	Debug.Println("done waiting for command to exit")
-	if err != nil {
-		Error.Print(out.String())
+	clientStdin.Write([]byte("iperf -t 2 -c " + ip1 + "\n"))
+	clientStdin.Close()
+	if err := clientCmd.Wait(); err != nil {
+		Error.Print(clientOutput.String())
 		t.Fatal(err)
 	}
-	Debug.Print(out.String())
+	Debug.Print(clientOutput.String())
 }
 
 func testOne(t *testing.T, test testCase, rsp interface{}) {
