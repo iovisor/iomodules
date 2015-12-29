@@ -127,8 +127,6 @@ func handlePolicyPost(r *http.Request) routeResponse {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
 	}
-	dataplane.mtx.Lock()
-	defer dataplane.mtx.Unlock()
 	for _, policy := range req.ResolvedPolicy.ResolvedPolicies {
 		if err := dataplane.ParsePolicy(policy); err != nil {
 			panic(err)

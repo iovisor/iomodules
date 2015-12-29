@@ -327,6 +327,18 @@ func TestInterfaces(t *testing.T) {
 		code: http.StatusOK,
 	}, nil)
 
+	if err := dataplane.AddEndpoint(ip1, "pepsi", "web"); err != nil {
+		t.Fatal(err)
+	}
+	if err := dataplane.AddEndpoint(ip2, "pepsi", "client"); err != nil {
+		t.Fatal(err)
+	}
+
+	Debug.Println("Endpoints:")
+	for endpoint := range dataplane.Endpoints() {
+		Debug.Printf("%v\n", *endpoint)
+	}
+
 	clientStdin.Write([]byte("iperf -t 2 -c " + ip1 + "\n"))
 	clientStdin.Close()
 	if err := clientCmd.Wait(); err != nil {
