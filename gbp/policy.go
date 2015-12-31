@@ -28,23 +28,33 @@ func (x *Parameter) String() string {
 }
 
 type Classifier struct {
-	Name           string       `json:"name"`
-	ParameterValue []*Parameter `json:"parameter-value"`
-	Id             string       `json:"classifier-definition-id"`
+	Name            string       `json:"name"`
+	ParameterValues []*Parameter `json:"parameter-value"`
+	Id              string       `json:"classifier-definition-id"`
 }
 
 func (x *Classifier) String() string {
-	return fmt.Sprintf("{%s %s %s}", x.Name, x.ParameterValue, x.Id)
+	return fmt.Sprintf("{%s %s %s}", x.Name, x.ParameterValues, x.Id)
 }
 
 type Action struct {
-	Name  string  `json:"name"`
-	Order float64 `json:"order"`
-	Id    string  `json:"action-definition-id"`
+	Name            string       `json:"name"`
+	Order           float64      `json:"order"`
+	ParameterValues []*Parameter `json:"parameter-value"`
+	Id              string       `json:"action-definition-id"`
 }
 
 func (x *Action) String() string {
 	return fmt.Sprintf("{n=%s o=%d i=%s}", x.Name, int(x.Order), x.Id)
+}
+
+func (x *Action) IsAllow() bool {
+	for _, param := range x.ParameterValues {
+		if param.Name == "allow" {
+			return param.Value == 1
+		}
+	}
+	return true
 }
 
 type Rule struct {
@@ -56,6 +66,15 @@ type Rule struct {
 
 func (x *Rule) String() string {
 	return fmt.Sprintf("{n=%s c=%s o=%d a=%s}", x.Name, x.Classifiers, int(x.Order), x.Actions)
+}
+
+func (x *Rule) IsAllow() bool {
+	for _, action := range x.Actions {
+		if !action.IsAllow() {
+			return false
+		}
+	}
+	return true
 }
 
 type PolicyRuleGroup struct {

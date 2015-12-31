@@ -60,7 +60,7 @@ var testPolicy string = `
                             "int-value": 1
                           }
                         ],
-                        "classifier-definition-id": "ip-proto"
+                        "classifier-definition-id": "icmp-proto"
                       }
                     ],
                     "order": 0,
@@ -95,7 +95,7 @@ var testPolicy string = `
                           }
                         ],
                         "direction": "in",
-                        "classifier-definition-id": "4250ab32-e8b8-445a-aebb-e1bd2cdd291f"
+                        "classifier-definition-id": "tcp-http-proto"
                       }
                     ],
                     "order": 0,
@@ -109,7 +109,7 @@ var testPolicy string = `
                           }
                         ],
                         "order": 0,
-                        "action-definition-id": "3d886be7-059f-4c4f-bbef-0356bea40933"
+                        "action-definition-id": "chain"
                       }
                     ]
                   },
@@ -129,7 +129,7 @@ var testPolicy string = `
                           }
                         ],
                         "direction": "out",
-                        "classifier-definition-id": "4250ab32-e8b8-445a-aebb-e1bd2cdd291f"
+                        "classifier-definition-id": "tcp-http-proto"
                       }
                     ],
                     "order": 1,
@@ -143,7 +143,7 @@ var testPolicy string = `
                           }
                         ],
                         "order": 0,
-                        "action-definition-id": "3d886be7-059f-4c4f-bbef-0356bea40933"
+                        "action-definition-id": "chain"
                       }
                     ]
                   }

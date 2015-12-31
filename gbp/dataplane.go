@@ -120,9 +120,23 @@ func (d *Dataplane) Close() error {
 	return nil
 }
 
-func (d *Dataplane) ParsePolicy(policy *Policy) error {
+func (d *Dataplane) ParsePolicy(policy *Policy) (err error) {
 	Debug.Println("ParsePolicy")
-	return nil
+	for _, ruleGroupConstrained := range policy.PolicyRuleGroups {
+		for _, ruleGroup := range ruleGroupConstrained.PolicyRuleGroups {
+			for _, rule := range ruleGroup.ResolvedRules {
+				for _, action := range rule.Actions {
+					Debug.Printf("%s/%s/%s\n", ruleGroup.ContractId, rule.Name, action.Name)
+				}
+				for _, classifier := range rule.Classifiers {
+					for _, param := range classifier.ParameterValues {
+						Debug.Printf("%s/%s/%s/%s=%d\n", ruleGroup.ContractId, rule.Name, classifier.Name, param.Name, int(param.Value))
+					}
+				}
+			}
+		}
+	}
+	return
 }
 
 type EndpointEntry struct {
