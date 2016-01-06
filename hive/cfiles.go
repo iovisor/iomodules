@@ -60,6 +60,7 @@ struct metadata {
 
 // iomodule must implement this function to attach to the networking stack
 static int handle_rx(void *pkt, struct metadata *md);
+static int handle_tx(void *pkt, struct metadata *md);
 
 static int pkt_redirect(void *pkt, struct metadata *md, int ifc);
 static int pkt_mirror(void *pkt, struct metadata *md, int ifc);
@@ -154,11 +155,12 @@ var wrapperC string = `
 BPF_TABLE("extern", int, struct metadata, metadata, 8);
 BPF_TABLE("prog", int, int, modules, 2);
 
+#ifdef RX_WRAPPER
 int handle_rx_wrapper(struct __sk_buff *skb) {
   int md_id = skb->cb[0];
   struct metadata *md = metadata.lookup(&md_id);
   if (!md) {
-    bpf_trace_printk("metadata lookup failed\n");
+    bpf_trace_printk("rx: metadata lookup failed\n");
     return TC_ACT_SHOT;
   }
   // copy to stack in cases llvm spills map pointers to stack
@@ -188,6 +190,44 @@ int handle_rx_wrapper(struct __sk_buff *skb) {
   modules.call(skb, 0);
   return TC_ACT_SHOT;
 }
+#endif
+
+#ifdef TX_WRAPPER
+int handle_tx_wrapper(struct __sk_buff *skb) {
+  int md_id = skb->cb[0];
+  struct metadata *md = metadata.lookup(&md_id);
+  if (!md) {
+    bpf_trace_printk("tx: metadata lookup failed\n");
+    return TC_ACT_SHOT;
+  }
+  // copy to stack in cases llvm spills map pointers to stack
+  //struct metadata local_md = *md;
+  //local_md.flags = 0;
+  //local_md.redir_ifc = 0;
+  //local_md.clone_ifc = 0;
+  md->flags = 0;
+  md->redir_ifc = 0;
+  md->clone_ifc = 0;
+
+  int rc = handle_tx(skb, md);
+
+  // TODO: implementation
+  switch (rc) {
+    case RX_OK:
+      break;
+    case RX_REDIRECT:
+      break;
+    case RX_RECIRCULATE:
+      modules.call(skb, 1);
+      break;
+    case RX_DROP:
+      return TC_ACT_SHOT;
+  }
+  //metadata.update(&md_id, &local_md);
+  modules.call(skb, 0);
+  return TC_ACT_SHOT;
+}
+#endif
 
 static int pkt_redirect(void *pkt, struct metadata *md, int ifc) {
   md->redir_ifc = ifc;

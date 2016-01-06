@@ -68,7 +68,8 @@ func NewPatchPanel() (pp *PatchPanel, err error) {
 		name:   "patch",
 		config: make(map[string]interface{}),
 	}
-	pp.adapter.bpf = NewBpfModule(strings.Join([]string{iomoduleH, patchC}, "\n"))
+	code := strings.Join([]string{iomoduleH, patchC}, "\n")
+	pp.adapter.bpf = NewBpfModule(code, []string{})
 	if pp.adapter.bpf == nil {
 		err = fmt.Errorf("PatchPanel: unable to load core module")
 		return

@@ -28,9 +28,151 @@ import (
 )
 
 var filterImplC string = `
+struct icmp_t {
+  unsigned char type;
+  unsigned char code;
+  unsigned short checksum;
+} BPF_PACKET_HEADER;
+
 BPF_TABLE("hash", u32, u32, endpoints, 1024);
-static int handle_rx(void *pkt, struct metadata *md) {
-  return RX_OK;
+
+struct match {
+  u16 sport;
+  u16 dport;
+  u8 proto;
+  u8 direction;
+};
+BPF_TABLE("hash", struct match, int, rules, 1024);
+
+static int handle_tx(void *skb, struct metadata *md) {
+  u8 *cursor = 0;
+  struct match m = {};
+  int ret = RX_DROP;
+  u32 dst_tag = 0, src_tag = 0;
+  if (md->data[0].type == 1)
+    src_tag = md->data[0].value;
+
+  ethernet: {
+    struct ethernet_t *ethernet = cursor_advance(cursor, sizeof(*ethernet));
+    u16 ethertype = ethernet->type;
+    switch (ethertype) {
+    case ETH_P_IP: goto ip;
+    case ETH_P_IPV6: goto ip6;
+    case ETH_P_ARP: goto arp;
+    default: goto DONE;
+    }
+  }
+
+  ip: {
+    struct ip_t *ip = cursor_advance(cursor, sizeof(*ip));
+    u32 dst_ip = ip->dst;
+    m.proto = ip->nextp;
+
+    u32 *tag = endpoints.lookup(&dst_ip);
+    if (!tag)
+      goto DONE;
+    dst_tag = *tag;
+    switch (m.proto) {
+      case 1: goto icmp;
+      case 6: goto tcp;
+      case 17: goto udp;
+      default: goto DONE;
+    }
+  }
+
+  ip6: {
+    goto DONE;
+  }
+
+  icmp: {
+    struct icmp_t *icmp = cursor_advance(cursor, sizeof(*icmp));
+    goto EOP;
+  }
+
+  tcp: {
+    struct tcp_t *tcp = cursor_advance(cursor, sizeof(*tcp));
+    m.dport = tcp->dst_port;
+    m.sport = tcp->src_port;
+    goto EOP;
+  }
+
+  udp: {
+    struct udp_t *udp = cursor_advance(cursor, sizeof(*udp));
+    m.dport = udp->dport;
+    m.sport = udp->sport;
+    goto EOP;
+  }
+
+  arp: {
+    return RX_OK;
+  }
+
+EOP: ;
+  struct match m1 = {m.sport, m.dport, m.proto, 0};
+  int *result = rules.lookup(&m1);
+  if (result) {
+    ret = *result;
+    goto DONE;
+  }
+  struct match m2 = {m.sport, 0, m.proto, 1};
+  result = rules.lookup(&m2);
+  if (result) {
+    ret = *result;
+    goto DONE;
+  }
+  struct match m3 = {0, m.dport, m.proto, 2};
+  result = rules.lookup(&m3);
+  if (result) {
+    ret = *result;
+    goto DONE;
+  }
+
+DONE:
+  return ret;
+}
+
+static int handle_rx(void *skb, struct metadata *md) {
+  u8 *cursor = 0;
+  u32 src_tag = 0;
+  int ret = RX_OK;
+
+  ethernet: {
+    struct ethernet_t *ethernet = cursor_advance(cursor, sizeof(*ethernet));
+    u16 ethertype = ethernet->type;
+    switch (ethertype) {
+    case ETH_P_IP: goto ip;
+    case ETH_P_IPV6: goto ip6;
+    case ETH_P_ARP: goto arp;
+    default: goto DONE;
+    }
+  }
+
+  ip: {
+    struct ip_t *ip = cursor_advance(cursor, sizeof(*ip));
+    u32 src_ip = ip->src;
+
+    u32 *tag = endpoints.lookup(&src_ip);
+    if (!tag)
+      goto DONE;
+    src_tag = *tag;
+    goto DONE;
+  }
+
+  ip6: {
+    goto DONE;
+  }
+
+  arp: {
+    goto DONE;
+  }
+
+DONE:
+  if (src_tag != 0) {
+    md->data[0].type = 1;
+    md->data[0].value = src_tag;
+  }
+
+  return ret;
 }
 `
 
@@ -38,6 +180,19 @@ var dataplane *Dataplane
 
 func init() {
 	dataplane = NewDataplane(":memory:")
+}
+
+type moduleEntry struct {
+	Id          string                 `json:"id"`
+	ModuleType  string                 `json:"module_type"`
+	DisplayName string                 `json:"display_name"`
+	Perm        string                 `json:"permissions"`
+	Config      map[string]interface{} `json:"config"`
+}
+
+type tableEntry struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 type Dataplane struct {
@@ -61,14 +216,6 @@ CREATE TABLE endpoints (
 );
 `)
 	return d
-}
-
-type moduleEntry struct {
-	Id          string                 `json:"id"`
-	ModuleType  string                 `json:"module_type"`
-	DisplayName string                 `json:"display_name"`
-	Perm        string                 `json:"permissions"`
-	Config      map[string]interface{} `json:"config"`
 }
 
 func (d *Dataplane) postObject(url string, requestObj interface{}, responseObj interface{}) (err error) {
@@ -100,7 +247,8 @@ func (d *Dataplane) Init(baseUrl string) error {
 		"module_type":  "bpf",
 		"display_name": "gbp",
 		"config": map[string]interface{}{
-			"code": filterImplC,
+			"code":     filterImplC,
+			"handlers": []string{"handle_rx", "handle_tx"},
 		},
 	}
 	var module moduleEntry
@@ -120,17 +268,35 @@ func (d *Dataplane) Close() error {
 	return nil
 }
 
+func epgToId(epgName string) int {
+	// TODO: store in the DB a name->id mapping
+	switch epgName {
+	case "client":
+		return 1
+	case "web":
+		return 2
+	}
+	return 0
+}
+
 func (d *Dataplane) ParsePolicy(policy *Policy) (err error) {
 	Debug.Println("ParsePolicy")
+	//consumerId := epgToId(policy.ConsumerEpgId)
+	//providerId := epgToId(policy.ProviderEpgId)
 	for _, ruleGroupConstrained := range policy.PolicyRuleGroups {
 		for _, ruleGroup := range ruleGroupConstrained.PolicyRuleGroups {
 			for _, rule := range ruleGroup.ResolvedRules {
-				for _, action := range rule.Actions {
-					Debug.Printf("%s/%s/%s\n", ruleGroup.ContractId, rule.Name, action.Name)
-				}
 				for _, classifier := range rule.Classifiers {
-					for _, param := range classifier.ParameterValues {
-						Debug.Printf("%s/%s/%s/%s=%d\n", ruleGroup.ContractId, rule.Name, classifier.Name, param.Name, int(param.Value))
+					m := classifier.ToMatch()
+					k := fmt.Sprintf("{ %d %d %d %d }", m.SourcePort, m.DestPort, m.Proto, m.Direction)
+					v := "2" // drop
+					if rule.IsAllow() {
+						v = "0"
+					}
+					obj := &tableEntry{Key: k, Value: v}
+					err = d.postObject("/modules/"+d.id+"/tables/rules/entries/", obj, nil)
+					if err != nil {
+						return
 					}
 				}
 			}
@@ -163,11 +329,6 @@ func (d *Dataplane) Endpoints() <-chan *EndpointEntry {
 		}
 	}()
 	return ch
-}
-
-type tableEntry struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
 }
 
 func ipStrToKey(ipStr string) (string, error) {
@@ -226,5 +387,9 @@ func (d *Dataplane) DeleteEndpoint(ip string) (err error) {
 		}
 	}()
 	_, err = tx.Exec(`DELETE FROM endpoints WHERE ip=?`, ip)
+	if err != nil {
+		return
+	}
+	//err = d.deleteObject("/modules/"+d.id+"/tables/endpoints/entries/"+ip, nil, nil)
 	return
 }

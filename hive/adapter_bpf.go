@@ -38,11 +38,21 @@ type BpfModule struct {
 }
 
 // NewBpfModule constructor
-func NewBpfModule(code string) *BpfModule {
+func NewBpfModule(code string, cflags []string) *BpfModule {
 	Debug.Println("Creating BpfModule from string")
+	cflagsC := make([]*C.char, len(cflags))
+	for i, cflag := range cflags {
+		cs := C.CString(cflag)
+		cflagsC[i] = cs
+		defer C.free(unsafe.Pointer(cs))
+	}
+	var cflagsP **C.char
+	if len(cflagsC) > 0 {
+		cflagsP = (**C.char)(&cflagsC[0])
+	}
 	cs := C.CString(code)
 	defer C.free(unsafe.Pointer(cs))
-	c := C.bpf_module_create_c_from_string(cs, 0)
+	c := C.bpf_module_create_c_from_string(cs, 0, cflagsP, C.int(len(cflagsC)))
 	if c == nil {
 		return nil
 	}
@@ -133,14 +143,16 @@ func (bpf *BpfModule) TableIter() <-chan map[string]interface{} {
 }
 
 type BpfAdapter struct {
-	id         string
-	handle     uint
-	name       string
-	perm       uint
-	config     map[string]interface{}
-	bpf        *BpfModule
-	patchPanel *PatchPanel
-	interfaces *HandlePool
+	id           string
+	handle       uint
+	name         string
+	perm         uint
+	hasRxHandler bool
+	hasTxHandler bool
+	config       map[string]interface{}
+	bpf          *BpfModule
+	patchPanel   *PatchPanel
+	interfaces   *HandlePool
 }
 
 func (adapter *BpfAdapter) Type() string {
@@ -156,6 +168,8 @@ func (adapter *BpfAdapter) Perm() uint {
 }
 
 func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {
+	var code string
+	var handlers []interface{}
 	for k, v := range config {
 		switch strings.ToLower(k) {
 		case "code":
@@ -163,17 +177,39 @@ func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {
 			if !ok {
 				return fmt.Errorf("Expected code argument to be a string")
 			}
-			adapter.bpf = NewBpfModule(strings.Join([]string{iomoduleH, wrapperC, val}, "\n"))
-			if adapter.bpf == nil {
-				return fmt.Errorf("Could not load bpf code, check server log for details")
+			code = strings.Join([]string{iomoduleH, wrapperC, val}, "\n")
+		case "handlers":
+			val, ok := v.([]interface{})
+			if !ok {
+				return fmt.Errorf("Expected handlers argument to be an array")
 			}
-			if err := adapter.Init(); err != nil {
-				adapter.Close()
-				return err
-			}
-			adapter.config["code"] = val
+			handlers = val
 		}
 	}
+	var cflags []string
+	for _, v := range handlers {
+		handler, ok := v.(string)
+		if !ok {
+			return fmt.Errorf("Expected handler to be a string")
+		}
+		switch handler {
+		case "handle_rx":
+			cflags = append(cflags, "-DRX_WRAPPER")
+			adapter.hasRxHandler = true
+		case "handle_tx":
+			cflags = append(cflags, "-DTX_WRAPPER")
+			adapter.hasTxHandler = true
+		}
+	}
+	adapter.bpf = NewBpfModule(code, cflags)
+	if adapter.bpf == nil {
+		return fmt.Errorf("Could not load bpf code, check server log for details")
+	}
+	if err := adapter.Init(); err != nil {
+		adapter.Close()
+		return err
+	}
+	adapter.config["code"] = code
 	return nil
 }
 

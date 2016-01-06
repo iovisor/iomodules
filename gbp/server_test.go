@@ -87,7 +87,7 @@ var testPolicy string = `
                         "parameter-value": [
                           {
                             "name": "destport",
-                            "int-value": 80
+                            "int-value": 5001
                           },
                           {
                             "name": "proto",
@@ -125,7 +125,7 @@ var testPolicy string = `
                           },
                           {
                             "name": "sourceport",
-                            "int-value": 80
+                            "int-value": 5001
                           }
                         ],
                         "direction": "out",
@@ -165,6 +165,11 @@ type testCase struct {
 }
 
 func TestBasicPolicy(t *testing.T) {
+	hive := httptest.NewServer(hive.NewServer())
+	defer hive.Close()
+	if err := dataplane.Init(hive.URL); err != nil {
+		t.Fatal(err)
+	}
 	srv := httptest.NewServer(NewServer())
 	defer srv.Close()
 	testValues := []testCase{

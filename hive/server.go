@@ -504,6 +504,13 @@ func NewServer() http.Handler {
 	ifc.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleInterfaceList))
 	ifc.Methods("GET").Path("/{interfaceId}").HandlerFunc(makeHandler(handleModuleInterfaceGet))
 
+	//ftr := ifc.PathPrefix("/{interfaceId}/features").Subrouter()
+	//ftr.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleInterfaceFeatureList))
+	//ftr.Methods("POST").Path("/").HandlerFunc(makeHandler(handleModuleInterfaceFeaturePost))
+	//ftr.Methods("GET").Path("/{policyId}").HandlerFunc(makeHandler(handleModuleInterfaceFeatureGet))
+	//ftr.Methods("PUT").Path("/{policyId}").HandlerFunc(makeHandler(handleModuleInterfaceFeaturePut))
+	//ftr.Methods("DELETE").Path("/{policyId}").HandlerFunc(makeHandler(handleModuleInterfaceFeatureDelete))
+
 	tbl := mod.PathPrefix("/{moduleId}/tables").Subrouter()
 	tbl.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleTableList))
 	tbl.Methods("GET").Path("/{tableId}").HandlerFunc(makeHandler(handleModuleTableGet))

@@ -30,11 +30,42 @@ func (x *Parameter) String() string {
 type Classifier struct {
 	Name            string       `json:"name"`
 	ParameterValues []*Parameter `json:"parameter-value"`
+	Direction       string       `json:"direction"`
 	Id              string       `json:"classifier-definition-id"`
 }
 
 func (x *Classifier) String() string {
 	return fmt.Sprintf("{%s %s %s}", x.Name, x.ParameterValues, x.Id)
+}
+
+type Match struct {
+	SourcePort uint16
+	DestPort   uint16
+	Proto      uint8
+	Direction  uint8 // 0=any, 1=in, 2=out
+}
+
+func (x *Classifier) ToMatch() Match {
+	var m Match
+	for _, param := range x.ParameterValues {
+		switch param.Name {
+		case "proto":
+			m.Proto = uint8(param.Value)
+		case "destport":
+			m.DestPort = uint16(param.Value)
+		case "sourceport":
+			m.SourcePort = uint16(param.Value)
+		}
+	}
+	switch x.Direction {
+	case "":
+		m.Direction = 0
+	case "in":
+		m.Direction = 1
+	case "out":
+		m.Direction = 2
+	}
+	return m
 }
 
 type Action struct {
