@@ -25,6 +25,6 @@ sudo -E go test github.com/iovisor/iomodules/gbp
 go install github.com/iovisor/iomodules/gbp/gbp
 
 # run the binaries in standalone mode
-$GOPATH/bin/hived
+sudo $GOPATH/bin/hived
 $GOPATH/bin/gbp -upstream $ODL_SOUTHBOUND_URL
 ```
