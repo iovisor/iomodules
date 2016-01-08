@@ -68,8 +68,7 @@ static int pkt_drop(void *pkt, struct metadata *md);
 `
 
 var patchC string = `
-BPF_TABLE("array", int, struct metadata, metadata, 8);
-BPF_TABLE_EXPORT(metadata);
+BPF_TABLE_PUBLIC("array", int, struct metadata, metadata, 8);
 
 BPF_TABLE("prog", int, int, modules, 1024);
 
