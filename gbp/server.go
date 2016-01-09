@@ -1,4 +1,4 @@
-// Copyright 2015 PLUMgrid
+// Copyright 2015 PLUMgrid and others
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -177,7 +177,7 @@ func handlePolicyDelete(r *http.Request) routeResponse {
 }
 
 func NewServer() http.Handler {
-	Info.Println("GBP (test) module starting")
+	Info.Println("GBP module starting")
 	rtr := mux.NewRouter()
 
 	pol := rtr.PathPrefix("/policies").Subrouter()
