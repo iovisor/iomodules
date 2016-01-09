@@ -32,7 +32,7 @@ func init() {
 	const (
 		upstreamDefault     = ""
 		upstreamHelp        = "Upstream GBP API endpoint URL"
-		listenSocketDefault = "127.0.0.1:5001"
+		listenSocketDefault = "192.168.50.100:5001"
 		listenSocketHelp    = "address:port to listen for policy updates"
 	)
 	flag.StringVar(&upstreamUrl, "upstream", upstreamDefault, upstreamHelp)
@@ -57,7 +57,7 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
-	notifier := gbp.NewNotifier(upstreamUrl, "http://"+listenSocket)
+	notifier := gbp.NewNotifier(upstreamUrl, listenSocket)
 	if err := notifier.NotifyEndpointUp(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
