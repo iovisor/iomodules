@@ -1,4 +1,4 @@
-// Copyright 2015 PLUMgrid
+// Copyright 2015 PLUMgrid and others
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -43,12 +43,12 @@ type l3Address struct {
 	L3Context string `json:"l3-context"`
 }
 type endpoint struct {
-	Name               string `json:"name"`
-	EndpointGroup      string `json:"endpoint-group"`
-	NetworkContainment string `json:"network-containment"`
-	L3Address          *l3Address
-	Tenant             string `json:"tenant"`
-	Location           string `json:"iovisor-location"`
+	//	Name               string `json:"name"`
+	EndpointGroups      []string      `json:"endpoint-groups"`
+	NetworkContainment string      `json:"network-containment"`
+	L3Address          []l3Address `json:"l3-address"`
+	Tenant             string      `json:"tenant"`
+	Location           string      `json:"iovisor:uri"`
 }
 type endpointNotification struct {
 	Input *endpoint `json:"input"`
@@ -57,17 +57,15 @@ type endpointNotification struct {
 func (n *Notifier) NotifyEndpointUp() error {
 	Debug.Println("NotifyEndpointUp")
 	// hardcoded for now
+	l3addr := l3Address{"169.254.0.1", "finance"}
 	notification := &endpointNotification{
 		Input: &endpoint{
-			Name:               "client1",
-			EndpointGroup:      "client",
+			//			Name:               "client1",
+			EndpointGroups:      []string{"client"},
 			NetworkContainment: "finance",
-			L3Address: &l3Address{
-				IPAddress: "169.254.0.1",
-				L3Context: "finance",
-			},
-			Tenant:   "pepsi",
-			Location: n.location,
+			L3Address:          []l3Address{l3addr},
+			Tenant:             "pepsi",
+			Location:           n.location,
 		},
 	}
 	b, err := json.Marshal(notification)
@@ -75,7 +73,10 @@ func (n *Notifier) NotifyEndpointUp() error {
 		return err
 	}
 	r := bytes.NewReader(b)
-	resp, err := n.client.Post(n.url+"/restconf/operations/endpoint:register-endpoint", "application/json", r)
+	req, err := http.NewRequest("POST", n.url+"/restconf/operations/endpoint:register-endpoint", r)
+	req.SetBasicAuth("admin", "admin")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := n.client.Do(req)
 	if err != nil {
 		return err
 	}
