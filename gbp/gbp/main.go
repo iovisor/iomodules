@@ -1,4 +1,4 @@
-// Copyright 2015 PLUMgrid
+// Copyright 2015 PLUMgrid and others
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/iovisor/iomodules/gbp"
+	"github.com/alagalah/iomodules/gbp"
 )
 
 var upstreamUrl string
@@ -32,7 +32,7 @@ func init() {
 	const (
 		upstreamDefault     = ""
 		upstreamHelp        = "Upstream GBP API endpoint URL"
-		listenSocketDefault = "192.168.50.100:5001"
+		listenSocketDefault = "127.0.0.1:5001"
 		listenSocketHelp    = "address:port to listen for policy updates"
 	)
 	flag.StringVar(&upstreamUrl, "upstream", upstreamDefault, upstreamHelp)

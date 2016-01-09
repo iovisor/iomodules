@@ -1,4 +1,4 @@
-// Copyright 2015 PLUMgrid
+// Copyright 2015 PLUMgrid and others
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -61,7 +61,7 @@ func (n *Notifier) NotifyEndpointUp() error {
 	notification := &endpointNotification{
 		Input: &endpoint{
 			//			Name:               "client1",
-			EndpointGroups:      []string{"bollocks"},
+			EndpointGroups:      []string{"client"},
 			NetworkContainment: "finance",
 			L3Address:          []l3Address{l3addr},
 			Tenant:             "pepsi",
