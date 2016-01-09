@@ -1,4 +1,4 @@
-// Copyright 2015 PLUMgrid
+// Copyright 2015 PLUMgrid and others
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,8 +19,11 @@ import (
 	"fmt"
 	"github.com/gorilla/mux"
 	"net/http"
+	"regexp"
 	"runtime"
 )
+
+var reqUriRegex = regexp.MustCompile(`^/restconf/operational/resolved-policy:resolved-policies/resolved-policy/([[:graph:]]+/){4}`)
 
 type routeResponse struct {
 	statusCode  int
@@ -122,16 +125,44 @@ func (g *GbpServer) handlePolicyList(r *http.Request) routeResponse {
 	return notFound()
 }
 
+type createPolicyRequestUri struct {
+	Uri string `json:"resolved-policy-uri"`
+}
+
 type createPolicyRequest struct {
 	ResolvedPolicy *ResolvedPolicy `json:"resolved-policies"`
 }
 
 func (g *GbpServer) handlePolicyPost(r *http.Request) routeResponse {
-	var req createPolicyRequest
+	var req createPolicyRequestUri
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
 	}
-	for _, policy := range req.ResolvedPolicy.ResolvedPolicies {
+
+	/* Received URI to fetch policy for relevant endpoints to this Agent */
+	reqUri := req.Uri
+	if reqUriRegex.MatchString(reqUri) == false {
+		panic(fmt.Errorf("Uri returned: %s is not in format `^/restconf/operational/resolved-policy:resolved-policies/resolved-policy/<string>/<string>/<string>/<string>/`", reqUri))
+		return routeResponse{}
+	}
+
+	/* Authenticate */
+	Debug.Printf(g.upstreamUri + reqUri)
+	reqGet, err := http.NewRequest("GET", g.upstreamUri+reqUri, nil)
+	reqGet.SetBasicAuth("admin", "admin")
+
+	client := http.Client{}
+	resp, err := client.Do(reqGet)
+	if err != nil {
+		Error.Printf("Error : %s", err)
+	}
+	var req2 ResolvedPolicy
+
+	if err := json.NewDecoder(resp.Body).Decode(&req2); err != nil {
+		panic(err)
+	}
+
+	for _, policy := range req2.ResolvedPolicies {
 		if err := dataplane.ParsePolicy(policy); err != nil {
 			panic(err)
 		}

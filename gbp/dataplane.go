@@ -223,6 +223,7 @@ func (d *Dataplane) postObject(url string, requestObj interface{}, responseObj i
 	if err != nil {
 		return
 	}
+	Debug.Printf(d.baseUrl)
 	resp, err := d.client.Post(d.baseUrl+url, "application/json", bytes.NewReader(b))
 	if err != nil {
 		return

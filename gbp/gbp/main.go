@@ -1,4 +1,4 @@
-// Copyright 2015 PLUMgrid
+// Copyright 2015 PLUMgrid and others
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -57,7 +57,7 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
-	notifier := gbp.NewNotifier(upstreamUrl, "http://"+listenSocket)
+	notifier := gbp.NewNotifier(upstreamUrl, listenSocket)
 	if err := notifier.NotifyEndpointUp(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
