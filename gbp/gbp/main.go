@@ -21,7 +21,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/alagalah/iomodules/gbp"
+	"github.com/iovisor/iomodules/gbp"
 )
 
 var upstreamUrl string
