@@ -58,7 +58,7 @@ func (x *Classifier) ToMatch() Match {
 		}
 	}
 	switch x.Direction {
-	case "":
+	case "", "bidirectional":
 		m.Direction = 0
 	case "in":
 		m.Direction = 1

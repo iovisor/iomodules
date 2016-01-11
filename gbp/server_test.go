@@ -33,129 +33,106 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-var testPolicy string = `
+var testPolicy = `
 {
-  "resolved-policies": {
-    "resolved-policy": [
-      {
-        "consumer-tenant-id": "pepsi",
-        "consumer-epg-id": "client",
-        "provider-tenant-id": "pepsi",
-        "provider-epg-id": "web",
-        "policy-rule-group-with-endpoint-constraints": [
-          {
-            "policy-rule-group": [
-              {
-                "tenant-id": "pepsi",
-                "contract-id": "web-client",
-                "subject-name": "icmp-subject",
-                "resolved-rule": [
-                  {
-                    "name": "allow-icmp-rule",
-                    "classifier": [
-                      {
-                        "name": "icmp",
-                        "parameter-value": [
-                          {
-                            "name": "proto",
-                            "int-value": 1
-                          }
-                        ],
-                        "classifier-definition-id": "icmp-proto"
-                      }
-                    ],
-                    "order": 0,
-                    "action": [
-                      {
-                        "name": "allow1",
-                        "order": 0,
-                        "action-definition-id": "allow"
-                      }
-                    ]
-                  }
-                ]
-              },
-              {
-                "tenant-id": "pepsi",
-                "contract-id": "web-client",
-                "subject-name": "http-subject",
-                "resolved-rule": [
-                  {
-                    "name": "http-chain-rule-in",
-                    "classifier": [
-                      {
-                        "name": "http-dest",
-                        "parameter-value": [
-                          {
-                            "name": "destport",
-                            "int-value": 5001
-                          },
-                          {
-                            "name": "proto",
-                            "int-value": 6
-                          }
-                        ],
-                        "direction": "in",
-                        "classifier-definition-id": "tcp-http-proto"
-                      }
-                    ],
-                    "order": 0,
-                    "action": [
-                      {
-                        "name": "chain1",
-                        "parameter-value": [
-                          {
-                            "name": "sfc-chain-name",
-                            "string-value": "SFCGBP"
-                          }
-                        ],
-                        "order": 0,
-                        "action-definition-id": "chain"
-                      }
-                    ]
-                  },
-                  {
-                    "name": "http-chain-rule-out",
-                    "classifier": [
-                      {
-                        "name": "http-src",
-                        "parameter-value": [
-                          {
-                            "name": "proto",
-                            "int-value": 6
-                          },
-                          {
-                            "name": "sourceport",
-                            "int-value": 5001
-                          }
-                        ],
-                        "direction": "out",
-                        "classifier-definition-id": "tcp-http-proto"
-                      }
-                    ],
-                    "order": 1,
-                    "action": [
-                      {
-                        "name": "chain1",
-                        "parameter-value": [
-                          {
-                            "name": "sfc-chain-name",
-                            "string-value": "SFCGBP"
-                          }
-                        ],
-                        "order": 0,
-                        "action-definition-id": "chain"
-                      }
-                    ]
-                  }
-                ]
-              }
-            ]
-          }
-        ]
-      }
-    ]
-  }
+  "resolved-policy": [
+    {
+      "consumer-tenant-id": "tenant-red",
+      "consumer-epg-id": "clients",
+      "provider-tenant-id": "tenant-red",
+      "provider-epg-id": "webservers",
+      "policy-rule-group-with-endpoint-constraints": [
+        {
+          "policy-rule-group": [
+            {
+              "tenant-id": "tenant-red",
+              "contract-id": "icmp-http-contract",
+              "subject-name": "allow-http-subject",
+              "resolved-rule": [
+                {
+                  "name": "allow-http-rule",
+                  "classifier": [
+                    {
+                      "name": "http-dest",
+                      "connection-tracking": "normal",
+                      "parameter-value": [
+                        {
+                          "name": "destport",
+                          "int-value": 5001
+                        },
+                        {
+                          "name": "proto",
+                          "int-value": 6
+                        }
+                      ],
+                      "direction": "in",
+                      "classifier-definition-id": "Classifier-L4"
+                    },
+                    {
+                      "name": "http-src",
+                      "connection-tracking": "normal",
+                      "parameter-value": [
+                        {
+                          "name": "proto",
+                          "int-value": 6
+                        },
+                        {
+                          "name": "sourceport",
+                          "int-value": 5001
+                        }
+                      ],
+                      "direction": "out",
+                      "classifier-definition-id": "Classifier-L4"
+                    }
+                  ],
+                  "order": 0,
+                  "action": [
+                    {
+                      "name": "allow1",
+                      "order": 0,
+                      "action-definition-id": "Action-Allow"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "tenant-id": "tenant-red",
+              "contract-id": "icmp-http-contract",
+              "subject-name": "allow-icmp-subject",
+              "resolved-rule": [
+                {
+                  "name": "allow-icmp-rule",
+                  "classifier": [
+                    {
+                      "name": "icmp",
+                      "connection-tracking": "normal",
+                      "parameter-value": [
+                        {
+                          "name": "proto",
+                          "int-value": 1
+                        }
+                      ],
+                      "direction": "bidirectional",
+                      "classifier-definition-id": "Classifier-IP-Protocol"
+                    }
+                  ],
+                  "order": 0,
+                  "action": [
+                    {
+                      "name": "allow1",
+                      "order": 0,
+                      "action-definition-id": "Action-Allow"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }
 `
 
@@ -173,11 +150,22 @@ func (m *mockUpstream) handleGet(r *http.Request) routeResponse {
 	return notFound()
 }
 
+func (m *mockUpstream) handleBasicResolvedPolicy(r *http.Request) routeResponse {
+	var rsp ResolvedPolicy
+	if err := json.NewDecoder(strings.NewReader(testPolicy)).Decode(&rsp); err != nil {
+		panic(err)
+	}
+	return routeResponse{body: rsp}
+}
+
+var basicResolvedPolicyUri = "/restconf/operational/resolved-policy:resolved-policies/resolved-policy/tenant-red/clients/tenant-red/webservers"
+
 func newMockUpstream() http.Handler {
 	mock := &mockUpstream{}
 
 	rtr := mux.NewRouter()
 	rtr.Methods("GET").Path("/").HandlerFunc(makeHandler(mock.handleGet))
+	rtr.Methods("GET").Path(basicResolvedPolicyUri).HandlerFunc(makeHandler(mock.handleBasicResolvedPolicy))
 	// TODO: fill in more methods as per the below test cases
 
 	return rtr
@@ -196,7 +184,7 @@ func TestBasicPolicy(t *testing.T) {
 	testValues := []testCase{
 		{
 			url:  srv.URL + "/policies/",
-			body: strings.NewReader(testPolicy),
+			body: strings.NewReader(`{"resolved-policy-uri": "` + basicResolvedPolicyUri + `"}`),
 			code: http.StatusOK,
 		},
 	}
@@ -307,7 +295,7 @@ func TestInterfaces(t *testing.T) {
 	// launch one policy dataplane
 	testOne(t, testCase{
 		url:  srv.URL + "/policies/",
-		body: strings.NewReader(testPolicy),
+		body: strings.NewReader(`{"resolved-policy-uri": "` + basicResolvedPolicyUri + `"}`),
 		code: http.StatusOK,
 	}, nil)
 

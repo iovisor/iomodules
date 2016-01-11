@@ -133,6 +133,8 @@ type createPolicyRequest struct {
 	ResolvedPolicy *ResolvedPolicy `json:"resolved-policies"`
 }
 
+var reqUriRegex = regexp.MustCompile(`^/restconf/operational/resolved-policy:resolved-policies/resolved-policy(/[[:graph:]]+){4}`)
+
 func (g *GbpServer) handlePolicyPost(r *http.Request) routeResponse {
 	var req createPolicyRequestUri
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -143,7 +145,6 @@ func (g *GbpServer) handlePolicyPost(r *http.Request) routeResponse {
 	reqUri := req.Uri
 	if reqUriRegex.MatchString(reqUri) == false {
 		panic(fmt.Errorf("Uri returned: %s is not in format `^/restconf/operational/resolved-policy:resolved-policies/resolved-policy/<string>/<string>/<string>/<string>/`", reqUri))
-		return routeResponse{}
 	}
 
 	/* Authenticate */
