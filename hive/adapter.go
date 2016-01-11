@@ -17,29 +17,15 @@
 package hive
 
 func NewAdapter(req *createModuleRequest, pp *PatchPanel) (adapter Adapter, err error) {
-	var (
-		id     string
-		handle uint
-	)
-	id, err = NewUUID4()
+	id, err := NewUUID4()
 	if err != nil {
 		return
 	}
-	handle, err = pp.AcquireHandle()
-	if err != nil {
-		return
-	}
-	defer func() {
-		if err != nil {
-			pp.ReleaseHandle(handle)
-		}
-	}()
 
 	switch req.ModuleType {
 	case "bpf":
 		a := &BpfAdapter{
 			id:         id,
-			handle:     handle,
 			name:       req.DisplayName,
 			perm:       PermR | PermW,
 			config:     make(map[string]interface{}),
@@ -59,17 +45,25 @@ const (
 	PermR
 )
 
+type Handler int
+
+const (
+	HandlerRx Handler = iota
+	HandlerTx
+	HandlerMax
+)
+
 type Adapter interface {
 	ID() string
-	Handle() uint
+	Handle(handler Handler) uint
 	Close()
 	Type() string
 	Name() string
 	Perm() uint
 	Config() map[string]interface{}
 	SetConfig(map[string]interface{}) error
-	AcquireInterface(name string) (uint, error)
-	ReleaseInterface(id uint) error
+	AcquireInterface(name string) (Interface, error)
+	ReleaseInterface(ifc Interface) error
 	Interfaces() <-chan Interface
 	InterfaceByName(name string) Interface
 	Tables() []map[string]interface{}

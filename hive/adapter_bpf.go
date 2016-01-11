@@ -74,6 +74,14 @@ func (bpf *BpfModule) initRxHandler() (int, error) {
 	return fd, nil
 }
 
+func (bpf *BpfModule) initTxHandler() (int, error) {
+	fd, err := bpf.Load("handle_tx_wrapper", C.BPF_PROG_TYPE_SCHED_ACT)
+	if err != nil {
+		return -1, err
+	}
+	return fd, nil
+}
+
 func (bpf *BpfModule) Load(name string, progType int) (int, error) {
 	fd, ok := bpf.funcs[name]
 	if ok {
@@ -144,7 +152,7 @@ func (bpf *BpfModule) TableIter() <-chan map[string]interface{} {
 
 type BpfAdapter struct {
 	id           string
-	handle       uint
+	handles      [HandlerMax]uint
 	name         string
 	perm         uint
 	hasRxHandler bool
@@ -201,6 +209,7 @@ func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {
 			adapter.hasTxHandler = true
 		}
 	}
+
 	adapter.bpf = NewBpfModule(code, cflags)
 	if adapter.bpf == nil {
 		return fmt.Errorf("Could not load bpf code, check server log for details")
@@ -220,28 +229,58 @@ func (adapter *BpfAdapter) Config() map[string]interface{} {
 func (adapter *BpfAdapter) ID() string {
 	return adapter.id
 }
-func (adapter *BpfAdapter) Handle() uint {
-	return adapter.handle
+func (adapter *BpfAdapter) Handle(handler Handler) uint {
+	return adapter.handles[handler]
 }
 
 func (adapter *BpfAdapter) Init() error {
-	fd, err := adapter.bpf.initRxHandler()
-	if err != nil {
-		return err
-	}
 	t := adapter.Table("modules")
 	if t == nil {
 		return fmt.Errorf("Unable to load modules table")
+	}
+	if adapter.hasRxHandler {
+		fd, err := adapter.bpf.initRxHandler()
+		if err != nil {
+			Warn.Printf("Unable to init rx handler: %s\n", err)
+			return err
+		}
+		h, err := adapter.patchPanel.AcquireHandle()
+		if err != nil {
+			return err
+		}
+		adapter.handles[HandlerRx] = h
+		// set callback for recirculate to rx
+		if err := t.Set("1", fmt.Sprintf("%d", fd)); err != nil {
+			return err
+		}
+		if err := adapter.patchPanel.Register(adapter, h, fd); err != nil {
+			return err
+		}
+	}
+	if adapter.hasTxHandler {
+		fd, err := adapter.bpf.initTxHandler()
+		if err != nil {
+			Warn.Printf("Unable to init tx handler: %s\n", err)
+			return err
+		}
+		h, err := adapter.patchPanel.AcquireHandle()
+		if err != nil {
+			return err
+		}
+		adapter.handles[HandlerTx] = h
+		// set callback for recirculate to tx
+		if err = t.Set("2", fmt.Sprintf("%d", fd)); err != nil {
+			return err
+		}
+		if err = adapter.patchPanel.Register(adapter, h, fd); err != nil {
+			return err
+		}
 	}
 	// set callback for returning to patch panel
 	if err := t.Set("0", fmt.Sprintf("%d", adapter.patchPanel.FD())); err != nil {
 		return err
 	}
-	// set callback for recirculate
-	if err := t.Set("1", fmt.Sprintf("%d", fd)); err != nil {
-		return err
-	}
-	return adapter.patchPanel.Register(adapter, fd)
+	return nil
 }
 
 func (adapter *BpfAdapter) Close() {
@@ -253,16 +292,29 @@ func (adapter *BpfAdapter) Close() {
 	}
 }
 
-func (adapter *BpfAdapter) AcquireInterface(name string) (uint, error) {
-	handle, err := adapter.interfaces.Acquire()
-	if err != nil {
-		return 0, err
-	}
-	return handle, nil
+type BpfInterface struct {
+	id   int
+	name string
 }
 
-func (adapter *BpfAdapter) ReleaseInterface(id uint) error {
-	adapter.interfaces.Release(id)
+func (ifc *BpfInterface) ID() int {
+	return ifc.id
+}
+func (ifc *BpfInterface) Name() string {
+	return ifc.name
+}
+
+func (adapter *BpfAdapter) AcquireInterface(name string) (ifc Interface, err error) {
+	handle, err := adapter.interfaces.Acquire()
+	if err != nil {
+		return
+	}
+	ifc = &BpfInterface{id: int(handle), name: name}
+	return
+}
+
+func (adapter *BpfAdapter) ReleaseInterface(ifc Interface) error {
+	adapter.interfaces.Release(uint(ifc.ID()))
 	return nil
 }
 

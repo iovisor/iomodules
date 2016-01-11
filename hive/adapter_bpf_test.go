@@ -35,13 +35,11 @@ import (
 
 var (
 	trivialC = `
-#include "iomodule.h"
 static int handle_rx(void *pkt, struct metadata *md) {
 	return RX_OK;
 }
 	`
 	errorC = `
-#include "iomodule.h"
 static int handle_rx(void *pkt, struct metadata *md) {
 	*(volatile int*)0 = 0;
 	return RX_OK;
@@ -49,7 +47,6 @@ static int handle_rx(void *pkt, struct metadata *md) {
 `
 
 	redirectC = `
-#include "iomodule.h"
 BPF_TABLE("array", int, int, redirect, 10);
 static int handle_rx(void *pkt, struct metadata *md) {
 	int in_ifc = md->in_ifc;
@@ -60,20 +57,39 @@ static int handle_rx(void *pkt, struct metadata *md) {
 	return RX_REDIRECT;
 }
 `
+
+	policyC = `
+BPF_TABLE("array", int, u64, counters, 10);
+static void incr(int counter) {
+	u64 *val = counters.lookup(&counter);
+	if (val)
+		++(*val);
+}
+static int handle_rx(void *pkt, struct metadata *md) {
+	incr(0);
+	return RX_OK;
+}
+static int handle_tx(void *pkt, struct metadata *md) {
+	incr(1);
+	return RX_OK;
+}
+`
 )
 
 type testCase struct {
-	url  string    // url of the request
-	body io.Reader // body of the request
-	code int       // expected pass criteria
+	url    string    // url of the request
+	method string    // which htttp method to use
+	body   io.Reader // body of the request
+	code   int       // expected pass criteria
 }
 
-func wrapCode(body string) io.Reader {
+func wrapCode(body string, handlers []string) io.Reader {
 	req := &createModuleRequest{
 		ModuleType:  "bpf",
 		DisplayName: "test",
 		Config: map[string]interface{}{
-			"code": body,
+			"code":     body,
+			"handlers": handlers,
 		},
 	}
 	b, err := json.Marshal(req)
@@ -98,12 +114,12 @@ func TestModuleCreate(t *testing.T) {
 	testValues := []testCase{
 		{
 			url:  srv.URL + "/modules/",
-			body: wrapCode(trivialC),
+			body: wrapCode(trivialC, []string{"handle_rx"}),
 			code: http.StatusOK,
 		},
 		{
 			url:  srv.URL + "/modules/",
-			body: wrapCode(errorC),
+			body: wrapCode(errorC, []string{"handle_rx"}),
 			code: http.StatusBadRequest,
 		},
 	}
@@ -119,12 +135,12 @@ func TestModuleConnect(t *testing.T) {
 	var t1, t2 moduleEntry
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
-		body: wrapCode(trivialC),
+		body: wrapCode(trivialC, []string{"handle_rx"}),
 		code: http.StatusOK,
 	}, &t1)
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
-		body: wrapCode(trivialC),
+		body: wrapCode(trivialC, []string{"handle_rx"}),
 		code: http.StatusOK,
 	}, &t2)
 	testOne(t, testCase{
@@ -160,7 +176,7 @@ func TestModuleRedirect(t *testing.T) {
 	var t1 moduleEntry
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
-		body: wrapCode(redirectC),
+		body: wrapCode(redirectC, []string{"handle_rx"}),
 		code: http.StatusOK,
 	}, &t1)
 
@@ -206,10 +222,93 @@ func TestModuleRedirect(t *testing.T) {
 	wg.Wait()
 }
 
+func TestModulePolicy(t *testing.T) {
+	srv := httptest.NewServer(NewServer())
+	defer srv.Close()
+
+	testns1 := NewNs()
+	defer testns1.Close()
+	testns2 := NewNs()
+	defer testns2.Close()
+
+	l1, err := NewVeth(testns1, "ns1", "eth0", "10.10.1.1/24", nil)
+	if err != nil {
+		t.Error(err)
+	}
+	defer netlink.LinkDel(l1)
+	l2, err := NewVeth(testns2, "ns2", "eth0", "10.10.1.2/24", nil)
+	if err != nil {
+		t.Error(err)
+	}
+	defer netlink.LinkDel(l2)
+
+	testOne(t, testCase{
+		url: srv.URL + "/links/",
+		body: wrapObject(map[string]interface{}{
+			"modules":    []string{"host", "host"},
+			"interfaces": []string{l1.Name, l2.Name},
+		}),
+		code: http.StatusOK,
+	}, nil)
+
+	var t1 moduleEntry
+	testOne(t, testCase{
+		url:  srv.URL + "/modules/",
+		body: wrapCode(policyC, []string{"handle_rx", "handle_tx"}),
+		code: http.StatusOK,
+	}, &t1)
+	testOne(t, testCase{
+		url: srv.URL + "/modules/host/interfaces/" + l1.Name + "/policies/",
+		body: wrapObject(map[string]interface{}{
+			"module": t1.Id,
+		}),
+		code: http.StatusOK,
+	}, nil)
+
+	var wg sync.WaitGroup
+	go RunInNs(testns1, func() error {
+		defer wg.Done()
+		out, err := exec.Command("ping", "-c", "1", "10.10.1.2").Output()
+		if err != nil {
+			t.Error(string(out), err)
+		}
+		return nil
+	})
+	wg.Add(1)
+	wg.Wait()
+
+	var c1, c2 AdapterTablePair
+	testOne(t, testCase{
+		url:    srv.URL + "/modules/" + t1.Id + "/tables/counters/entries/0x0",
+		body:   nil,
+		method: "GET",
+		code:   http.StatusOK,
+	}, &c1)
+	if c1.Key.(string) != "0x0" || c1.Value.(string) == "0x0" {
+		t.Fatalf("Expected counter 1 != 0, got %s", c1.Value)
+	}
+	testOne(t, testCase{
+		url:    srv.URL + "/modules/" + t1.Id + "/tables/counters/entries/0x1",
+		body:   nil,
+		method: "GET",
+		code:   http.StatusOK,
+	}, &c2)
+	if c2.Key.(string) != "0x1" || c2.Value.(string) == "0x0" {
+		t.Fatalf("Expected counter 1 != 0, got %s", c2.Value)
+	}
+}
+
 func testOne(t *testing.T, test testCase, rsp interface{}) {
 	client := &http.Client{}
 
-	resp, err := client.Post(test.url, "application/json", test.body)
+	var resp *http.Response
+	var err error
+	switch test.method {
+	case "", "POST":
+		resp, err = client.Post(test.url, "application/json", test.body)
+	case "GET":
+		resp, err = client.Get(test.url)
+	}
 	if err != nil {
 		t.Error(err)
 	}

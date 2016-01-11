@@ -22,6 +22,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/jmoiron/sqlx"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/vishvananda/netlink"
 )
 
@@ -39,10 +41,12 @@ var (
 type PatchPanel struct {
 	adapter       *BpfAdapter
 	tailcallFd    int
-	netdevFd      int
+	netdevRxFd    int
+	netdevTxFd    int
 	modules       AdapterTable
 	links         AdapterTable
 	moduleHandles *HandlePool
+	db            *sqlx.DB
 }
 
 func NewPatchPanel() (pp *PatchPanel, err error) {
@@ -54,9 +58,17 @@ func NewPatchPanel() (pp *PatchPanel, err error) {
 
 	pp = &PatchPanel{
 		tailcallFd:    -1,
-		netdevFd:      -1,
+		netdevRxFd:    -1,
+		netdevTxFd:    -1,
 		moduleHandles: NewHandlePool(1024),
+		db:            sqlx.MustConnect("sqlite3", ":memory:"),
 	}
+	pp.db.MustExec(`
+CREATE TABLE links (
+	id CHAR(36)  PRIMARY KEY NOT NULL,
+	src CHAR(36) NOT NULL,
+	dst CHAR(36) NOT NULL
+);`)
 	defer func() {
 		if err != nil {
 			pp.Close()
@@ -86,7 +98,11 @@ func NewPatchPanel() (pp *PatchPanel, err error) {
 		return
 	}
 	Debug.Printf("Patch panel links table loaded: %v\n", pp.links.Config())
-	pp.netdevFd, err = pp.adapter.bpf.Load("recv_netdev", C.BPF_PROG_TYPE_SCHED_ACT)
+	pp.netdevRxFd, err = pp.adapter.bpf.Load("recv_netdev_ingress", C.BPF_PROG_TYPE_SCHED_ACT)
+	if err != nil {
+		return
+	}
+	pp.netdevTxFd, err = pp.adapter.bpf.Load("recv_netdev_egress", C.BPF_PROG_TYPE_SCHED_ACT)
 	if err != nil {
 		return
 	}
@@ -114,11 +130,12 @@ func (p *PatchPanel) FD() int {
 	return p.tailcallFd
 }
 
-func (p *PatchPanel) Register(adapter *BpfAdapter, fd int) error {
+func (p *PatchPanel) Register(adapter *BpfAdapter, handle uint, fd int) error {
 	Info.Printf("PatchPanel: Registering module \"%s\"\n", adapter.Name())
 	// update the module tail call table
-	err := p.modules.Set(fmt.Sprintf("%d", adapter.Handle()), strconv.Itoa(fd))
+	err := p.modules.Set(fmt.Sprintf("%d", handle), strconv.Itoa(fd))
 	if err != nil {
+		Warn.Printf("PatchPanel.Register failed: %s\n", err)
 		return err
 	}
 	return nil
@@ -126,9 +143,16 @@ func (p *PatchPanel) Register(adapter *BpfAdapter, fd int) error {
 func (p *PatchPanel) Unregister(adapter *BpfAdapter) {
 	Info.Printf("PatchPanel: Unregistering module \"%s\"\n", adapter.Name())
 	if p.modules != nil {
-		err := p.modules.Delete(fmt.Sprintf("%d", adapter.Handle()))
-		if err != nil {
-			Warn.Printf("PatchPanel: error deleting module from table: %s\n", err)
+		for i := HandlerRx; i < HandlerMax; i++ {
+			h := adapter.Handle(i)
+			if h == 0 {
+				continue
+			}
+			err := p.modules.Delete(fmt.Sprintf("%d", h))
+			if err != nil {
+				Warn.Printf("PatchPanel: error deleting module %s(%d) from table: %s\n", adapter.Name(), h, err)
+			}
+			p.ReleaseHandle(h)
 		}
 	}
 }
@@ -159,8 +183,8 @@ func (p *PatchPanel) Connect(adapterA, adapterB Adapter, ifcA, ifcB string) (id 
 		}
 	}()
 
-	key1 := fmt.Sprintf("{%d %d }", adapterA.Handle(), if1)
-	val1 := fmt.Sprintf("{%d %d 0 0}", adapterB.Handle(), if2)
+	key1 := fmt.Sprintf("{%d %d 0}", adapterA.Handle(HandlerRx), if1.ID())
+	val1 := fmt.Sprintf("{%d %d 0 0}", adapterB.Handle(HandlerRx), if2.ID())
 	if err = p.links.Set(key1, val1); err != nil {
 		return
 	}
@@ -170,8 +194,8 @@ func (p *PatchPanel) Connect(adapterA, adapterB Adapter, ifcA, ifcB string) (id 
 		}
 	}()
 
-	key2 := fmt.Sprintf("{%d %d }", adapterB.Handle(), if2)
-	val2 := fmt.Sprintf("{%d %d 0 0}", adapterA.Handle(), if1)
+	key2 := fmt.Sprintf("{%d %d 0}", adapterB.Handle(HandlerRx), if2.ID())
+	val2 := fmt.Sprintf("{%d %d 0 0}", adapterA.Handle(HandlerRx), if1.ID())
 	if err = p.links.Set(key2, val2); err != nil {
 		return
 	}
@@ -182,13 +206,21 @@ func (p *PatchPanel) Connect(adapterA, adapterB Adapter, ifcA, ifcB string) (id 
 	}()
 
 	if adapterA.Type() == "host" {
-		if err = setIngressFd(int(if1), p.netdevFd); err != nil {
+		var link netlink.Link
+		if link, err = netlink.LinkByIndex(if1.ID()); err != nil {
+			return
+		}
+		if err = ensureIngressFd(link, p.netdevRxFd); err != nil {
 			return
 		}
 	}
 
 	if adapterB.Type() == "host" {
-		if err = setIngressFd(int(if2), p.netdevFd); err != nil {
+		var link netlink.Link
+		if link, err = netlink.LinkByIndex(if2.ID()); err != nil {
+			return
+		}
+		if err = ensureIngressFd(link, p.netdevRxFd); err != nil {
 			return
 		}
 	}
@@ -197,37 +229,125 @@ func (p *PatchPanel) Connect(adapterA, adapterB Adapter, ifcA, ifcB string) (id 
 	return
 }
 
-func setIngressFd(ifc, fd int) error {
+// EnablePolicy adds rcvAdapter as a handler for packets going in and out of srcAdapter.ifcName
+func (p *PatchPanel) EnablePolicy(srcAdapter, rcvAdapter Adapter, srcIfc Interface) (id string, err error) {
+	newId, err := NewUUID4()
+	if err != nil {
+		return
+	}
+
+	rcvIfc, err := rcvAdapter.AcquireInterface("")
+	if err != nil {
+		return
+	}
+	defer func() {
+		if err != nil {
+			rcvAdapter.ReleaseInterface(rcvIfc)
+		}
+	}()
+
+	cleanupLinkIfError := func(k string) {
+		if err != nil {
+			p.links.Delete(k)
+		}
+	}
+
+	k := fmt.Sprintf("{%d %d 0}", srcAdapter.Handle(HandlerRx), srcIfc.ID())
+	v := fmt.Sprintf("{%d %d 0 0}", rcvAdapter.Handle(HandlerRx), rcvIfc.ID())
+	if o, ok := p.links.Get(k); ok {
+		k2 := fmt.Sprintf("{%d %d 0}", rcvAdapter.Handle(HandlerRx), rcvIfc.ID())
+		v2 := o.(AdapterTablePair).Value.(string)
+		Debug.Printf("existing link %s = %s\n", k, v2)
+		if err = p.links.Set(k2, v2); err != nil {
+			return
+		}
+	}
+	if err = p.links.Set(k, v); err != nil {
+		return
+	}
+	defer cleanupLinkIfError(k)
+
+	k = fmt.Sprintf("{%d %d 1}", srcAdapter.Handle(HandlerRx), srcIfc.ID())
+	v = fmt.Sprintf("{%d %d 0 0}", rcvAdapter.Handle(HandlerTx), rcvIfc.ID())
+	Debug.Printf("tx link %s\n", v)
+	if o, ok := p.links.Get(k); ok {
+		k2 := fmt.Sprintf("{%d %d 1}", rcvAdapter.Handle(HandlerTx), rcvIfc.ID())
+		v2 := o.(AdapterTablePair).Value.(string)
+		Debug.Printf("existing link %s = %s\n", k, v2)
+		if err = p.links.Set(k2, v2); err != nil {
+			return
+		}
+	}
+	if err = p.links.Set(k, v); err != nil {
+		return
+	}
+	defer cleanupLinkIfError(k)
+
+	if srcAdapter.Type() == "host" {
+		var link netlink.Link
+		if link, err = netlink.LinkByIndex(srcIfc.ID()); err != nil {
+			return
+		}
+		if err = ensureIngressFd(link, p.netdevRxFd); err != nil {
+			return
+		}
+		if err = ensureFqCodelFd(link, p.netdevTxFd); err != nil {
+			return
+		}
+	}
+
+	// TODO: insert into a db
+
+	id = newId
+	return
+}
+
+func ensureIngressFd(link netlink.Link, fd int) error {
 	ingress := &netlink.Ingress{
 		QdiscAttrs: netlink.QdiscAttrs{
-			LinkIndex: ifc,
+			LinkIndex: link.Attrs().Index,
 			Handle:    netlink.MakeHandle(0xffff, 0),
 			Parent:    netlink.HANDLE_INGRESS,
 		},
 	}
-	if err := netlink.QdiscAdd(ingress); err != nil {
-		return fmt.Errorf("failed setting ingress qdisc: %v", err)
+	qds, err := netlink.QdiscList(link)
+	if err != nil {
+		return err
 	}
-	u32 := &netlink.U32{
-		FilterAttrs: netlink.FilterAttrs{
-			LinkIndex: ifc,
-			Parent:    ingress.QdiscAttrs.Handle,
-			Priority:  1,
-			Protocol:  syscall.ETH_P_ALL,
-		},
-		ClassId: netlink.MakeHandle(1, 1),
-		BpfFd:   fd,
+	var ingressFound bool
+	for _, q := range qds {
+		if i, ok := q.(*netlink.Ingress); ok {
+			ingress = i
+			ingressFound = true
+			Debug.Printf("Found existing ingress qdisc %x\n", ingress.QdiscAttrs.Handle)
+			break
+		}
 	}
-	if err := netlink.FilterAdd(u32); err != nil {
-		return fmt.Errorf("failed adding ingress filter: %v", err)
+	if !ingressFound {
+		if err := netlink.QdiscAdd(ingress); err != nil {
+			return fmt.Errorf("failed setting ingress qdisc: %v", err)
+		}
+		u32 := &netlink.U32{
+			FilterAttrs: netlink.FilterAttrs{
+				LinkIndex: link.Attrs().Index,
+				Parent:    ingress.QdiscAttrs.Handle,
+				Priority:  1,
+				Protocol:  syscall.ETH_P_ALL,
+			},
+			ClassId: netlink.MakeHandle(1, 1),
+			BpfFd:   fd,
+		}
+		if err := netlink.FilterAdd(u32); err != nil {
+			return fmt.Errorf("failed adding ingress filter: %v", err)
+		}
 	}
 	return nil
 }
 
-func setFqCodelFd(ifc, fd int) error {
+func ensureFqCodelFd(link netlink.Link, fd int) error {
 	fq := &netlink.GenericQdisc{
 		QdiscAttrs: netlink.QdiscAttrs{
-			LinkIndex: ifc,
+			LinkIndex: link.Attrs().Index,
 			Handle:    netlink.MakeHandle(1, 0),
 			Parent:    netlink.HANDLE_ROOT,
 		},
@@ -238,7 +358,7 @@ func setFqCodelFd(ifc, fd int) error {
 	}
 	u32 := &netlink.U32{
 		FilterAttrs: netlink.FilterAttrs{
-			LinkIndex: ifc,
+			LinkIndex: link.Attrs().Index,
 			Parent:    fq.QdiscAttrs.Handle,
 			Protocol:  syscall.ETH_P_ALL,
 			//Handle:    10,

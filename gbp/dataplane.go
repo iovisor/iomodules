@@ -114,13 +114,13 @@ EOP: ;
     ret = *result;
     goto DONE;
   }
-  struct match m2 = {m.sport, 0, m.proto, 1};
+  struct match m2 = {m.sport, 0, m.proto, 2};
   result = rules.lookup(&m2);
   if (result) {
     ret = *result;
     goto DONE;
   }
-  struct match m3 = {0, m.dport, m.proto, 2};
+  struct match m3 = {0, m.dport, m.proto, 1};
   result = rules.lookup(&m3);
   if (result) {
     ret = *result;
@@ -288,6 +288,7 @@ func (d *Dataplane) ParsePolicy(policy *Policy) (err error) {
 					if rule.IsAllow() {
 						v = "0"
 					}
+					Debug.Printf("rule %s %s\n", k, v)
 					obj := &tableEntry{Key: k, Value: v}
 					err = d.postObject("/modules/"+d.id+"/tables/rules/entries/", obj, nil)
 					if err != nil {

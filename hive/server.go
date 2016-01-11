@@ -481,6 +481,59 @@ func handleModuleInterfaceGet(r *http.Request) routeResponse {
 	}}
 }
 
+type policyEntry struct {
+	Id     string `json:"id"`
+	Module string `json:"module"`
+}
+
+func handleModuleInterfacePolicyList(r *http.Request) routeResponse {
+	entries := []*policyEntry{}
+	return routeResponse{body: entries}
+}
+
+type createPolicyRequest struct {
+	Module string `json:"module"`
+}
+
+func handleModuleInterfacePolicyPost(r *http.Request) routeResponse {
+	var req createPolicyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		panic(err)
+	}
+	adapterA, ok := adapterEntries.m[getRequestVar(r, "moduleId")]
+	if !ok {
+		return notFound()
+	}
+	adapterB, ok := adapterEntries.m[req.Module]
+	if !ok {
+		panic(fmt.Errorf("Reference to module %s not found", req.Module))
+	}
+	ifcId := getRequestVar(r, "interfaceId")
+	ifc := adapterA.InterfaceByName(ifcId)
+	if ifc == nil {
+		return notFound()
+	}
+	id, err := adapterEntries.patchPanel.EnablePolicy(adapterA, adapterB, ifc)
+	if err != nil {
+		panic(err)
+	}
+	return routeResponse{
+		body: &policyEntry{
+			Id:     id,
+			Module: req.Module,
+		},
+	}
+}
+func handleModuleInterfacePolicyGet(r *http.Request) routeResponse {
+	return routeResponse{}
+}
+func handleModuleInterfacePolicyPut(r *http.Request) routeResponse {
+	return routeResponse{}
+}
+func handleModuleInterfacePolicyDelete(r *http.Request) routeResponse {
+	return routeResponse{}
+}
+
 func NewServer() http.Handler {
 	initServerOnce.Do(initServerVars)
 
@@ -489,6 +542,7 @@ func NewServer() http.Handler {
 
 	// modules
 	// modules/{moduleId}/interfaces
+	// modules/{moduleId}/interfaces/{interfaceId}/policies
 	// modules/{moduleId}/tables
 	// modules/{moduleId}/tables/{tableId}/entries
 	// links
@@ -504,12 +558,12 @@ func NewServer() http.Handler {
 	ifc.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleInterfaceList))
 	ifc.Methods("GET").Path("/{interfaceId}").HandlerFunc(makeHandler(handleModuleInterfaceGet))
 
-	//ftr := ifc.PathPrefix("/{interfaceId}/features").Subrouter()
-	//ftr.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleInterfaceFeatureList))
-	//ftr.Methods("POST").Path("/").HandlerFunc(makeHandler(handleModuleInterfaceFeaturePost))
-	//ftr.Methods("GET").Path("/{policyId}").HandlerFunc(makeHandler(handleModuleInterfaceFeatureGet))
-	//ftr.Methods("PUT").Path("/{policyId}").HandlerFunc(makeHandler(handleModuleInterfaceFeaturePut))
-	//ftr.Methods("DELETE").Path("/{policyId}").HandlerFunc(makeHandler(handleModuleInterfaceFeatureDelete))
+	ftr := ifc.PathPrefix("/{interfaceId}/policies").Subrouter()
+	ftr.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleInterfacePolicyList))
+	ftr.Methods("POST").Path("/").HandlerFunc(makeHandler(handleModuleInterfacePolicyPost))
+	ftr.Methods("GET").Path("/{policyId}").HandlerFunc(makeHandler(handleModuleInterfacePolicyGet))
+	ftr.Methods("PUT").Path("/{policyId}").HandlerFunc(makeHandler(handleModuleInterfacePolicyPut))
+	ftr.Methods("DELETE").Path("/{policyId}").HandlerFunc(makeHandler(handleModuleInterfacePolicyDelete))
 
 	tbl := mod.PathPrefix("/{moduleId}/tables").Subrouter()
 	tbl.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleTableList))

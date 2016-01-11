@@ -318,10 +318,8 @@ func TestInterfaces(t *testing.T) {
 
 	link1 := gatherOneLink(t, ch)
 	testOne(t, testCase{
-		url: hive.URL + "/links/",
-		body: strings.NewReader(fmt.Sprintf(
-			`{"modules": ["host", "%s"], "interfaces": ["%s", ""]}`,
-			g.dataplane.Id(), link1.Attrs().Name)),
+		url:  fmt.Sprintf("%s/modules/host/interfaces/%s/policies/", hive.URL, link1.Attrs().Name),
+		body: strings.NewReader(fmt.Sprintf(`{"module": "%s"}`, g.dataplane.Id())),
 		code: http.StatusOK,
 	}, nil)
 
@@ -338,10 +336,8 @@ func TestInterfaces(t *testing.T) {
 	Debug.Printf("ip2=%s\n", ip2)
 
 	testOne(t, testCase{
-		url: hive.URL + "/links/",
-		body: strings.NewReader(fmt.Sprintf(
-			`{"modules": ["host", "%s"], "interfaces": ["%s", ""]}`,
-			g.dataplane.Id(), link2.Attrs().Name)),
+		url:  fmt.Sprintf("%s/modules/host/interfaces/%s/policies/", hive.URL, link2.Attrs().Name),
+		body: strings.NewReader(fmt.Sprintf(`{"module": "%s"}`, g.dataplane.Id())),
 		code: http.StatusOK,
 	}, nil)
 

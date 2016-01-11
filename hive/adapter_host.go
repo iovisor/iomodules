@@ -53,7 +53,7 @@ func (adapter *HostAdapter) ID() string {
 	return adapter.id
 }
 
-func (adapter *HostAdapter) Handle() uint {
+func (adapter *HostAdapter) Handle(handler Handler) uint {
 	return 0 //adapter.handle
 }
 
@@ -85,6 +85,9 @@ func (adapter *HostAdapter) Interfaces() <-chan Interface {
 			return
 		}
 		for _, link := range links {
+			if link.Type() == "bridge" {
+				continue
+			}
 			ch <- &HostInterface{
 				id:   link.Attrs().Index,
 				name: link.Attrs().Name,
@@ -95,7 +98,6 @@ func (adapter *HostAdapter) Interfaces() <-chan Interface {
 }
 func (adapter *HostAdapter) InterfaceByName(name string) Interface {
 	link, err := netlink.LinkByName(name)
-	Debug.Printf("HostAdapter: InterfaceByName = %v\n", link)
 	if err != nil {
 		return nil
 	}
@@ -104,15 +106,16 @@ func (adapter *HostAdapter) InterfaceByName(name string) Interface {
 		name: link.Attrs().Name,
 	}
 }
-func (adapter *HostAdapter) AcquireInterface(name string) (uint, error) {
+func (adapter *HostAdapter) AcquireInterface(name string) (ifc Interface, err error) {
 	link, err := netlink.LinkByName(name)
 	if err != nil {
-		return 0, err
+		return
 	}
-	return uint(link.Attrs().Index), nil
+	ifc = &HostInterface{id: link.Attrs().Index, name: link.Attrs().Name}
+	return
 }
 
-func (adapter *HostAdapter) ReleaseInterface(id uint) error {
+func (adapter *HostAdapter) ReleaseInterface(ifc Interface) error {
 	return nil
 }
 
