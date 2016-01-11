@@ -28,6 +28,10 @@ type routeResponse struct {
 	body        interface{}
 }
 
+type GbpServer struct {
+	upstreamUri string
+}
+
 type handlerFunc func(r *http.Request) routeResponse
 
 func makeHandler(fn handlerFunc) http.HandlerFunc {
@@ -114,7 +118,7 @@ func getRequestVar(r *http.Request, key string) string {
 	return value
 }
 
-func handlePolicyList(r *http.Request) routeResponse {
+func (g *GbpServer) handlePolicyList(r *http.Request) routeResponse {
 	return notFound()
 }
 
@@ -122,7 +126,7 @@ type createPolicyRequest struct {
 	ResolvedPolicy *ResolvedPolicy `json:"resolved-policies"`
 }
 
-func handlePolicyPost(r *http.Request) routeResponse {
+func (g *GbpServer) handlePolicyPost(r *http.Request) routeResponse {
 	var req createPolicyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
@@ -134,26 +138,28 @@ func handlePolicyPost(r *http.Request) routeResponse {
 	}
 	return routeResponse{}
 }
-func handlePolicyGet(r *http.Request) routeResponse {
+func (g *GbpServer) handlePolicyGet(r *http.Request) routeResponse {
 	return notFound()
 }
-func handlePolicyPut(r *http.Request) routeResponse {
+func (g *GbpServer) handlePolicyPut(r *http.Request) routeResponse {
 	return notFound()
 }
-func handlePolicyDelete(r *http.Request) routeResponse {
+func (g *GbpServer) handlePolicyDelete(r *http.Request) routeResponse {
 	return notFound()
 }
 
-func NewServer() http.Handler {
+func NewServer(upstreamUri string) http.Handler {
 	Info.Println("GBP module starting")
 	rtr := mux.NewRouter()
 
+	g := &GbpServer{upstreamUri: upstreamUri}
+
 	pol := rtr.PathPrefix("/policies").Subrouter()
-	pol.Methods("POST").Path("/").HandlerFunc(makeHandler(handlePolicyPost))
-	pol.Methods("GET").Path("/").HandlerFunc(makeHandler(handlePolicyList))
-	pol.Methods("GET").Path("/{policyId}").HandlerFunc(makeHandler(handlePolicyGet))
-	pol.Methods("PUT").Path("/{policyId}").HandlerFunc(makeHandler(handlePolicyPut))
-	pol.Methods("DELETE").Path("/{policyId}").HandlerFunc(makeHandler(handlePolicyDelete))
+	pol.Methods("POST").Path("/").HandlerFunc(makeHandler(g.handlePolicyPost))
+	pol.Methods("GET").Path("/").HandlerFunc(makeHandler(g.handlePolicyList))
+	pol.Methods("GET").Path("/{policyId}").HandlerFunc(makeHandler(g.handlePolicyGet))
+	pol.Methods("PUT").Path("/{policyId}").HandlerFunc(makeHandler(g.handlePolicyPut))
+	pol.Methods("DELETE").Path("/{policyId}").HandlerFunc(makeHandler(g.handlePolicyDelete))
 
 	// new routes go here
 

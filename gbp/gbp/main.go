@@ -62,6 +62,6 @@ func main() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	srv := gbp.NewServer()
+	srv := gbp.NewServer(upstreamUrl)
 	http.ListenAndServe(listenSocket, srv)
 }

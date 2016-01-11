@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/iovisor/iomodules/hive"
 	"github.com/vishvananda/netlink"
 )
@@ -164,13 +165,33 @@ type testCase struct {
 	code int       // expected pass criteria
 }
 
+// this class will mock the request/response of an upstream GBP renderer
+type mockUpstream struct {
+}
+
+func (m *mockUpstream) handleGet(r *http.Request) routeResponse {
+	return notFound()
+}
+
+func newMockUpstream() http.Handler {
+	mock := &mockUpstream{}
+
+	rtr := mux.NewRouter()
+	rtr.Methods("GET").Path("/").HandlerFunc(makeHandler(mock.handleGet))
+	// TODO: fill in more methods as per the below test cases
+
+	return rtr
+}
+
 func TestBasicPolicy(t *testing.T) {
 	hive := httptest.NewServer(hive.NewServer())
 	defer hive.Close()
 	if err := dataplane.Init(hive.URL); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(NewServer())
+	upstream := httptest.NewServer(newMockUpstream())
+	defer upstream.Close()
+	srv := httptest.NewServer(NewServer(upstream.URL))
 	defer srv.Close()
 	testValues := []testCase{
 		{
@@ -278,7 +299,9 @@ func TestInterfaces(t *testing.T) {
 	if err := dataplane.Init(hive.URL); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(NewServer())
+	upstream := httptest.NewServer(newMockUpstream())
+	defer upstream.Close()
+	srv := httptest.NewServer(NewServer(upstream.URL))
 	defer srv.Close()
 
 	// launch one policy dataplane
