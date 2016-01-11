@@ -23,7 +23,7 @@ import (
 	"runtime"
 )
 
-var reqUriRegex = regexp.MustCompile(`^/restconf/operational/resolved-policy:resolved-policies/resolved-policy/([[:graph:]]+/){4}`)
+var reqUriRegex = regexp.MustCompile(`^/restconf/operational/resolved-policy:resolved-policies/resolved-policy(/[[:graph:]]+){4}`)
 
 type routeResponse struct {
 	statusCode  int
@@ -132,8 +132,6 @@ type createPolicyRequestUri struct {
 type createPolicyRequest struct {
 	ResolvedPolicy *ResolvedPolicy `json:"resolved-policies"`
 }
-
-var reqUriRegex = regexp.MustCompile(`^/restconf/operational/resolved-policy:resolved-policies/resolved-policy(/[[:graph:]]+){4}`)
 
 func (g *GbpServer) handlePolicyPost(r *http.Request) routeResponse {
 	var req createPolicyRequestUri
