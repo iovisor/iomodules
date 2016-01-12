@@ -26,22 +26,27 @@ import (
 
 var upstreamUrl string
 var listenSocket string
+var dataplaneUrl string
 var helpFlag bool
 
 func init() {
 	const (
 		upstreamDefault     = ""
 		upstreamHelp        = "Upstream GBP API endpoint URL"
+		dataplaneDefault    = ""
+		dataplaneHelp       = "Local dataplane URL"
 		listenSocketDefault = "127.0.0.1:5001"
 		listenSocketHelp    = "address:port to listen for policy updates"
 	)
 	flag.StringVar(&upstreamUrl, "upstream", upstreamDefault, upstreamHelp)
+	flag.StringVar(&dataplaneUrl, "dataplane", dataplaneDefault, dataplaneHelp)
 	flag.StringVar(&listenSocket, "listen", listenSocketDefault, listenSocketHelp)
 	flag.BoolVar(&helpFlag, "h", false, "print this help")
 
 	flag.Usage = func() {
 		fmt.Printf("Usage: %s -upstream http://www.example.com:8181\n", filepath.Base(os.Args[0]))
 		fmt.Printf(" -upstream URL       %s (default=%s)\n", upstreamHelp, upstreamDefault)
+		fmt.Printf(" -dataplane URL      %s (default=%s)\n", dataplaneHelp, dataplaneDefault)
 		fmt.Printf(" -listen   ADDR:PORT %s (default=%s)\n", listenSocketHelp, listenSocketDefault)
 	}
 }
@@ -57,11 +62,21 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
+	if len(dataplaneUrl) == 0 {
+		fmt.Println("Missing argument -dataplane")
+		flag.Usage()
+		os.Exit(1)
+	}
 	notifier := gbp.NewNotifier(upstreamUrl, listenSocket)
 	if err := notifier.NotifyEndpointUp(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	srv := gbp.NewServer(upstreamUrl)
-	http.ListenAndServe(listenSocket, srv)
+	g, err := gbp.NewServer(upstreamUrl, dataplaneUrl)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	gbp.Info.Printf("GBP Server listening on %s\n", listenSocket)
+	http.ListenAndServe(listenSocket, g.Handler())
 }

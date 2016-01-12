@@ -174,12 +174,13 @@ func newMockUpstream() http.Handler {
 func TestBasicPolicy(t *testing.T) {
 	hive := httptest.NewServer(hive.NewServer())
 	defer hive.Close()
-	if err := dataplane.Init(hive.URL); err != nil {
-		t.Fatal(err)
-	}
 	upstream := httptest.NewServer(newMockUpstream())
 	defer upstream.Close()
-	srv := httptest.NewServer(NewServer(upstream.URL))
+	g, err := NewServer(upstream.URL, hive.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(g.Handler())
 	defer srv.Close()
 	testValues := []testCase{
 		{
@@ -284,12 +285,13 @@ func gatherOneLink(t *testing.T, ch <-chan netlink.LinkUpdate) netlink.Link {
 func TestInterfaces(t *testing.T) {
 	hive := httptest.NewServer(hive.NewServer())
 	defer hive.Close()
-	if err := dataplane.Init(hive.URL); err != nil {
-		t.Fatal(err)
-	}
 	upstream := httptest.NewServer(newMockUpstream())
 	defer upstream.Close()
-	srv := httptest.NewServer(NewServer(upstream.URL))
+	g, err := NewServer(upstream.URL, hive.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(g.Handler())
 	defer srv.Close()
 
 	// launch one policy dataplane
@@ -319,7 +321,7 @@ func TestInterfaces(t *testing.T) {
 		url: hive.URL + "/links/",
 		body: strings.NewReader(fmt.Sprintf(
 			`{"modules": ["host", "%s"], "interfaces": ["%s", ""]}`,
-			dataplane.Id(), link1.Attrs().Name)),
+			g.dataplane.Id(), link1.Attrs().Name)),
 		code: http.StatusOK,
 	}, nil)
 
@@ -339,19 +341,19 @@ func TestInterfaces(t *testing.T) {
 		url: hive.URL + "/links/",
 		body: strings.NewReader(fmt.Sprintf(
 			`{"modules": ["host", "%s"], "interfaces": ["%s", ""]}`,
-			dataplane.Id(), link2.Attrs().Name)),
+			g.dataplane.Id(), link2.Attrs().Name)),
 		code: http.StatusOK,
 	}, nil)
 
-	if err := dataplane.AddEndpoint(ip1, "pepsi", "web"); err != nil {
+	if err := g.dataplane.AddEndpoint(ip1, "pepsi", "web"); err != nil {
 		t.Fatal(err)
 	}
-	if err := dataplane.AddEndpoint(ip2, "pepsi", "client"); err != nil {
+	if err := g.dataplane.AddEndpoint(ip2, "pepsi", "client"); err != nil {
 		t.Fatal(err)
 	}
 
 	Debug.Println("Endpoints:")
-	for endpoint := range dataplane.Endpoints() {
+	for endpoint := range g.dataplane.Endpoints() {
 		Debug.Printf("%v\n", *endpoint)
 	}
 

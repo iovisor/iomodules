@@ -176,12 +176,6 @@ DONE:
 }
 `
 
-var dataplane *Dataplane
-
-func init() {
-	dataplane = NewDataplane(":memory:")
-}
-
 type moduleEntry struct {
 	Id          string                 `json:"id"`
 	ModuleType  string                 `json:"module_type"`
@@ -223,7 +217,7 @@ func (d *Dataplane) postObject(url string, requestObj interface{}, responseObj i
 	if err != nil {
 		return
 	}
-	Debug.Printf(d.baseUrl)
+	Debug.Printf("Uploading GBP dataplane code to %s\n", d.baseUrl)
 	resp, err := d.client.Post(d.baseUrl+url, "application/json", bytes.NewReader(b))
 	if err != nil {
 		return

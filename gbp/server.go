@@ -32,7 +32,9 @@ type routeResponse struct {
 }
 
 type GbpServer struct {
+	handler     http.Handler
 	upstreamUri string
+	dataplane   *Dataplane
 }
 
 type handlerFunc func(r *http.Request) routeResponse
@@ -162,7 +164,7 @@ func (g *GbpServer) handlePolicyPost(r *http.Request) routeResponse {
 	}
 
 	for _, policy := range req2.ResolvedPolicies {
-		if err := dataplane.ParsePolicy(policy); err != nil {
+		if err := g.dataplane.ParsePolicy(policy); err != nil {
 			panic(err)
 		}
 	}
@@ -178,11 +180,22 @@ func (g *GbpServer) handlePolicyDelete(r *http.Request) routeResponse {
 	return notFound()
 }
 
-func NewServer(upstreamUri string) http.Handler {
+func (g *GbpServer) Handler() http.Handler {
+	return g.handler
+}
+
+func NewServer(upstreamUri, dataplaneUri string) (*GbpServer, error) {
 	Info.Println("GBP module starting")
 	rtr := mux.NewRouter()
 
-	g := &GbpServer{upstreamUri: upstreamUri}
+	g := &GbpServer{
+		handler:     rtr,
+		upstreamUri: upstreamUri,
+		dataplane:   NewDataplane(":memory:"),
+	}
+	if err := g.dataplane.Init(dataplaneUri); err != nil {
+		return nil, err
+	}
 
 	pol := rtr.PathPrefix("/policies").Subrouter()
 	pol.Methods("POST").Path("/").HandlerFunc(makeHandler(g.handlePolicyPost))
@@ -193,5 +206,5 @@ func NewServer(upstreamUri string) http.Handler {
 
 	// new routes go here
 
-	return rtr
+	return g, nil
 }
