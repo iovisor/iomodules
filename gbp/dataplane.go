@@ -29,150 +29,150 @@ import (
 
 var filterImplC string = `
 struct icmp_t {
-  unsigned char type;
-  unsigned char code;
-  unsigned short checksum;
+	unsigned char type;
+	unsigned char code;
+	unsigned short checksum;
 } BPF_PACKET_HEADER;
 
 BPF_TABLE("hash", u32, u32, endpoints, 1024);
 
 struct match {
-  u16 sport;
-  u16 dport;
-  u8 proto;
-  u8 direction;
+	u16 sport;
+	u16 dport;
+	u8 proto;
+	u8 direction;
 };
 BPF_TABLE("hash", struct match, int, rules, 1024);
 
 static int handle_tx(void *skb, struct metadata *md) {
-  u8 *cursor = 0;
-  struct match m = {};
-  int ret = RX_DROP;
-  u32 dst_tag = 0, src_tag = 0;
-  if (md->data[0].type == 1)
-    src_tag = md->data[0].value;
+	u8 *cursor = 0;
+	struct match m = {};
+	int ret = RX_DROP;
+	u32 dst_tag = 0, src_tag = 0;
+	if (md->data[0].type == 1)
+		src_tag = md->data[0].value;
 
-  ethernet: {
-    struct ethernet_t *ethernet = cursor_advance(cursor, sizeof(*ethernet));
-    u16 ethertype = ethernet->type;
-    switch (ethertype) {
-    case ETH_P_IP: goto ip;
-    case ETH_P_IPV6: goto ip6;
-    case ETH_P_ARP: goto arp;
-    default: goto DONE;
-    }
-  }
+	ethernet: {
+		struct ethernet_t *ethernet = cursor_advance(cursor, sizeof(*ethernet));
+		u16 ethertype = ethernet->type;
+		switch (ethertype) {
+			case ETH_P_IP: goto ip;
+			case ETH_P_IPV6: goto ip6;
+			case ETH_P_ARP: goto arp;
+			default: goto DONE;
+		}
+	}
 
-  ip: {
-    struct ip_t *ip = cursor_advance(cursor, sizeof(*ip));
-    u32 dst_ip = ip->dst;
-    m.proto = ip->nextp;
+	ip: {
+		struct ip_t *ip = cursor_advance(cursor, sizeof(*ip));
+		u32 dst_ip = ip->dst;
+		m.proto = ip->nextp;
 
-    u32 *tag = endpoints.lookup(&dst_ip);
-    if (!tag)
-      goto DONE;
-    dst_tag = *tag;
-    switch (m.proto) {
-      case 1: goto icmp;
-      case 6: goto tcp;
-      case 17: goto udp;
-      default: goto DONE;
-    }
-  }
+		u32 *tag = endpoints.lookup(&dst_ip);
+		if (!tag)
+			goto DONE;
+		dst_tag = *tag;
+		switch (m.proto) {
+			case 1: goto icmp;
+			case 6: goto tcp;
+			case 17: goto udp;
+			default: goto DONE;
+		}
+	}
 
-  ip6: {
-    goto DONE;
-  }
+	ip6: {
+		goto DONE;
+	}
 
-  icmp: {
-    struct icmp_t *icmp = cursor_advance(cursor, sizeof(*icmp));
-    goto EOP;
-  }
+	icmp: {
+		struct icmp_t *icmp = cursor_advance(cursor, sizeof(*icmp));
+		goto EOP;
+	}
 
-  tcp: {
-    struct tcp_t *tcp = cursor_advance(cursor, sizeof(*tcp));
-    m.dport = tcp->dst_port;
-    m.sport = tcp->src_port;
-    goto EOP;
-  }
+	tcp: {
+		struct tcp_t *tcp = cursor_advance(cursor, sizeof(*tcp));
+		m.dport = tcp->dst_port;
+		m.sport = tcp->src_port;
+		goto EOP;
+	}
 
-  udp: {
-    struct udp_t *udp = cursor_advance(cursor, sizeof(*udp));
-    m.dport = udp->dport;
-    m.sport = udp->sport;
-    goto EOP;
-  }
+	udp: {
+		struct udp_t *udp = cursor_advance(cursor, sizeof(*udp));
+		m.dport = udp->dport;
+		m.sport = udp->sport;
+		goto EOP;
+	}
 
-  arp: {
-    return RX_OK;
-  }
+	arp: {
+		return RX_OK;
+	}
 
 EOP: ;
-  struct match m1 = {m.sport, m.dport, m.proto, 0};
-  int *result = rules.lookup(&m1);
-  if (result) {
-    ret = *result;
-    goto DONE;
-  }
-  struct match m2 = {m.sport, 0, m.proto, 2};
-  result = rules.lookup(&m2);
-  if (result) {
-    ret = *result;
-    goto DONE;
-  }
-  struct match m3 = {0, m.dport, m.proto, 1};
-  result = rules.lookup(&m3);
-  if (result) {
-    ret = *result;
-    goto DONE;
-  }
+	struct match m1 = {m.sport, m.dport, m.proto, 0};
+	int *result = rules.lookup(&m1);
+	if (result) {
+		ret = *result;
+		goto DONE;
+	}
+	struct match m2 = {m.sport, 0, m.proto, 2};
+	result = rules.lookup(&m2);
+	if (result) {
+		ret = *result;
+		goto DONE;
+	}
+	struct match m3 = {0, m.dport, m.proto, 1};
+	result = rules.lookup(&m3);
+	if (result) {
+		ret = *result;
+		goto DONE;
+	}
 
 DONE:
-  return ret;
+	return ret;
 }
 
 static int handle_rx(void *skb, struct metadata *md) {
-  u8 *cursor = 0;
-  u32 src_tag = 0;
-  int ret = RX_OK;
+	u8 *cursor = 0;
+	u32 src_tag = 0;
+	int ret = RX_OK;
 
-  ethernet: {
-    struct ethernet_t *ethernet = cursor_advance(cursor, sizeof(*ethernet));
-    u16 ethertype = ethernet->type;
-    switch (ethertype) {
-    case ETH_P_IP: goto ip;
-    case ETH_P_IPV6: goto ip6;
-    case ETH_P_ARP: goto arp;
-    default: goto DONE;
-    }
-  }
+	ethernet: {
+		struct ethernet_t *ethernet = cursor_advance(cursor, sizeof(*ethernet));
+		u16 ethertype = ethernet->type;
+		switch (ethertype) {
+			case ETH_P_IP: goto ip;
+			case ETH_P_IPV6: goto ip6;
+			case ETH_P_ARP: goto arp;
+			default: goto DONE;
+		}
+	}
 
-  ip: {
-    struct ip_t *ip = cursor_advance(cursor, sizeof(*ip));
-    u32 src_ip = ip->src;
+	ip: {
+		struct ip_t *ip = cursor_advance(cursor, sizeof(*ip));
+		u32 src_ip = ip->src;
 
-    u32 *tag = endpoints.lookup(&src_ip);
-    if (!tag)
-      goto DONE;
-    src_tag = *tag;
-    goto DONE;
-  }
+		u32 *tag = endpoints.lookup(&src_ip);
+		if (!tag)
+			goto DONE;
+		src_tag = *tag;
+		goto DONE;
+	}
 
-  ip6: {
-    goto DONE;
-  }
+	ip6: {
+		goto DONE;
+	}
 
-  arp: {
-    goto DONE;
-  }
+	arp: {
+		goto DONE;
+	}
 
 DONE:
-  if (src_tag != 0) {
-    md->data[0].type = 1;
-    md->data[0].value = src_tag;
-  }
+	if (src_tag != 0) {
+		md->data[0].type = 1;
+		md->data[0].value = src_tag;
+	}
 
-  return ret;
+	return ret;
 }
 `
 
