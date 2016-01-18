@@ -37,10 +37,13 @@ struct icmp_t {
 BPF_TABLE("hash", u32, u32, endpoints, 1024);
 
 struct match {
+	u32 src_tag;
+	u32 dst_tag;
 	u16 sport;
 	u16 dport;
 	u8 proto;
 	u8 direction;
+	u8 pad[2];
 };
 BPF_TABLE("hash", struct match, int, rules, 1024);
 
@@ -108,19 +111,20 @@ static int handle_tx(void *skb, struct metadata *md) {
 	}
 
 EOP: ;
-	struct match m1 = {m.sport, m.dport, m.proto, 0};
-	int *result = rules.lookup(&m1);
+	int *result;
+	struct match m1 = {src_tag, dst_tag, m.sport, m.dport, m.proto, 0};
+	result = rules.lookup(&m1);
 	if (result) {
 		ret = *result;
 		goto DONE;
 	}
-	struct match m2 = {m.sport, 0, m.proto, 2};
+	struct match m2 = {src_tag, dst_tag, m.sport, 0, m.proto, 1/*2*/};
 	result = rules.lookup(&m2);
 	if (result) {
 		ret = *result;
 		goto DONE;
 	}
-	struct match m3 = {0, m.dport, m.proto, 1};
+	struct match m3 = {src_tag, dst_tag, 0, m.dport, m.proto, 1};
 	result = rules.lookup(&m3);
 	if (result) {
 		ret = *result;
@@ -217,7 +221,6 @@ func (d *Dataplane) postObject(url string, requestObj interface{}, responseObj i
 	if err != nil {
 		return
 	}
-	Debug.Printf("Uploading GBP dataplane code to %s\n", d.baseUrl)
 	resp, err := d.client.Post(d.baseUrl+url, "application/json", bytes.NewReader(b))
 	if err != nil {
 		return
@@ -266,9 +269,9 @@ func (d *Dataplane) Close() error {
 func epgToId(epgName string) int {
 	// TODO: store in the DB a name->id mapping
 	switch epgName {
-	case "client":
+	case "clients":
 		return 1
-	case "web":
+	case "webservers":
 		return 2
 	}
 	return 0
@@ -276,14 +279,19 @@ func epgToId(epgName string) int {
 
 func (d *Dataplane) ParsePolicy(policy *Policy) (err error) {
 	Debug.Println("ParsePolicy")
-	//consumerId := epgToId(policy.ConsumerEpgId)
-	//providerId := epgToId(policy.ProviderEpgId)
+	consumerId := epgToId(policy.ConsumerEpgId)
+	providerId := epgToId(policy.ProviderEpgId)
 	for _, ruleGroupConstrained := range policy.PolicyRuleGroups {
 		for _, ruleGroup := range ruleGroupConstrained.PolicyRuleGroups {
 			for _, rule := range ruleGroup.ResolvedRules {
 				for _, classifier := range rule.Classifiers {
 					m := classifier.ToMatch()
-					k := fmt.Sprintf("{ %d %d %d %d }", m.SourcePort, m.DestPort, m.Proto, m.Direction)
+					id1, id2 := consumerId, providerId
+					if m.Direction == 2 {
+						id1, id2 = providerId, consumerId
+					}
+					k := fmt.Sprintf("{ %d %d %d %d %d %d }",
+						id1, id2, m.SourcePort, m.DestPort, m.Proto, 1 /*m.Direction*/)
 					v := "2" // drop
 					if rule.IsAllow() {
 						v = "0"
@@ -361,7 +369,7 @@ func (d *Dataplane) AddEndpoint(ipStr, tenant, epg string) (err error) {
 	}
 	obj := &tableEntry{
 		Key:   ipKey,
-		Value: "1",
+		Value: fmt.Sprintf("%d", epgToId(epg)),
 	}
 	err = d.postObject("/modules/"+d.id+"/tables/endpoints/entries/", obj, nil)
 	if err != nil {

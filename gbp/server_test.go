@@ -172,7 +172,9 @@ func newMockUpstream() http.Handler {
 }
 
 func TestBasicPolicy(t *testing.T) {
-	hive := httptest.NewServer(hive.NewServer())
+	hiveServer := hive.NewServer()
+	defer hiveServer.Close()
+	hive := httptest.NewServer(hiveServer.Handler())
 	defer hive.Close()
 	upstream := httptest.NewServer(newMockUpstream())
 	defer upstream.Close()
@@ -283,7 +285,9 @@ func gatherOneLink(t *testing.T, ch <-chan netlink.LinkUpdate) netlink.Link {
 }
 
 func TestInterfaces(t *testing.T) {
-	hive := httptest.NewServer(hive.NewServer())
+	hiveServer := hive.NewServer()
+	defer hiveServer.Close()
+	hive := httptest.NewServer(hiveServer.Handler())
 	defer hive.Close()
 	upstream := httptest.NewServer(newMockUpstream())
 	defer upstream.Close()
@@ -341,10 +345,10 @@ func TestInterfaces(t *testing.T) {
 		code: http.StatusOK,
 	}, nil)
 
-	if err := g.dataplane.AddEndpoint(ip1, "pepsi", "web"); err != nil {
+	if err := g.dataplane.AddEndpoint(ip1, "pepsi", "webservers"); err != nil {
 		t.Fatal(err)
 	}
-	if err := g.dataplane.AddEndpoint(ip2, "pepsi", "client"); err != nil {
+	if err := g.dataplane.AddEndpoint(ip2, "pepsi", "clients"); err != nil {
 		t.Fatal(err)
 	}
 

@@ -22,6 +22,8 @@ import (
 )
 
 func TestIfcList(t *testing.T) {
-	srv := httptest.NewServer(NewServer())
+	s := NewServer()
+	defer s.Close()
+	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 }

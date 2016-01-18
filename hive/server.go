@@ -17,6 +17,11 @@ type routeResponse struct {
 	body        interface{}
 }
 
+type HiveServer struct {
+	handler        http.Handler
+	adapterEntries AdapterEntries
+}
+
 type handlerFunc func(r *http.Request) routeResponse
 
 func makeHandler(fn handlerFunc) http.HandlerFunc {
@@ -110,30 +115,6 @@ type AdapterEntries struct {
 	patchPanel *PatchPanel
 }
 
-var (
-	adapterEntries AdapterEntries
-	initServerOnce sync.Once
-)
-
-func initServerVars() {
-	adapterEntries.m = make(map[string]Adapter)
-	var err error
-	adapterEntries.patchPanel, err = NewPatchPanel()
-	if err != nil {
-		panic(err)
-	}
-	handle, err := adapterEntries.patchPanel.AcquireHandle()
-	if err != nil {
-		panic(err)
-	}
-	adapterEntries.m["host"] = &HostAdapter{
-		id:     "host",
-		handle: handle,
-		name:   "host",
-		perm:   PermR,
-	}
-}
-
 func (a *AdapterEntries) Add(adapter Adapter) {
 	a.mtx.Lock()
 	defer a.mtx.Unlock()
@@ -199,65 +180,84 @@ func getRequestVar(r *http.Request, key string) string {
 	return value
 }
 
-func handleModuleList(r *http.Request) routeResponse {
-	entries := adapterEntries.GetAll()
+func (s *HiveServer) Init() (err error) {
+	s.adapterEntries.m = make(map[string]Adapter)
+	s.adapterEntries.patchPanel, err = NewPatchPanel()
+	if err != nil {
+		return
+	}
+	handle, err := s.adapterEntries.patchPanel.AcquireHandle()
+	if err != nil {
+		return
+	}
+	s.adapterEntries.m["host"] = &HostAdapter{
+		id:     "host",
+		handle: handle,
+		name:   "host",
+		perm:   PermR,
+	}
+	return
+}
+
+func (s *HiveServer) handleModuleList(r *http.Request) routeResponse {
+	entries := s.adapterEntries.GetAll()
 	return routeResponse{body: entries}
 }
 
 // handleModulePost processes creation of a new Module
-func handleModulePost(r *http.Request) routeResponse {
+func (s *HiveServer) handleModulePost(r *http.Request) routeResponse {
 	var req createModuleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
 	}
-	adapter, err := NewAdapter(&req, adapterEntries.patchPanel)
+	adapter, err := NewAdapter(&req, s.adapterEntries.patchPanel)
 	if err != nil {
 		panic(err)
 	}
-	adapterEntries.Add(adapter)
+	s.adapterEntries.Add(adapter)
 	entry := adapterToModuleEntry(adapter)
 	return routeResponse{body: entry}
 }
 
-func handleModuleGet(r *http.Request) routeResponse {
+func (s *HiveServer) handleModuleGet(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	entry := adapterEntries.Get(id)
+	entry := s.adapterEntries.Get(id)
 	if entry == nil {
 		return notFound()
 	}
 	return routeResponse{body: entry}
 }
-func handleModulePut(r *http.Request) routeResponse {
+func (s *HiveServer) handleModulePut(r *http.Request) routeResponse {
 	return routeResponse{}
 }
-func handleModuleDelete(r *http.Request) routeResponse {
+func (s *HiveServer) handleModuleDelete(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	adapterEntries.mtx.Lock()
-	defer adapterEntries.mtx.Unlock()
-	adapter, ok := adapterEntries.m[id]
+	s.adapterEntries.mtx.Lock()
+	defer s.adapterEntries.mtx.Unlock()
+	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
 	}
 	adapter.Close()
-	delete(adapterEntries.m, id)
+	delete(s.adapterEntries.m, id)
 	return routeResponse{}
 }
 
-func handleModuleTableList(r *http.Request) routeResponse {
+func (s *HiveServer) handleModuleTableList(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	adapterEntries.mtx.RLock()
-	defer adapterEntries.mtx.RUnlock()
-	adapter, ok := adapterEntries.m[id]
+	s.adapterEntries.mtx.RLock()
+	defer s.adapterEntries.mtx.RUnlock()
+	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
 	}
 	return routeResponse{body: adapter.Tables()}
 }
-func handleModuleTableGet(r *http.Request) routeResponse {
+func (s *HiveServer) handleModuleTableGet(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	adapterEntries.mtx.RLock()
-	defer adapterEntries.mtx.RUnlock()
-	adapter, ok := adapterEntries.m[id]
+	s.adapterEntries.mtx.RLock()
+	defer s.adapterEntries.mtx.RUnlock()
+	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
 	}
@@ -269,11 +269,11 @@ func handleModuleTableGet(r *http.Request) routeResponse {
 	return routeResponse{body: tbl.Config()}
 }
 
-func handleModuleTableEntryList(r *http.Request) routeResponse {
+func (s *HiveServer) handleModuleTableEntryList(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	adapterEntries.mtx.RLock()
-	defer adapterEntries.mtx.RUnlock()
-	adapter, ok := adapterEntries.m[id]
+	s.adapterEntries.mtx.RLock()
+	defer s.adapterEntries.mtx.RUnlock()
+	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
 	}
@@ -297,15 +297,15 @@ type createModuleTableEntryRequest struct {
 	Value string `json:"value"`
 }
 
-func handleModuleTableEntryPost(r *http.Request) routeResponse {
+func (s *HiveServer) handleModuleTableEntryPost(r *http.Request) routeResponse {
 	var req createModuleTableEntryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
 	}
 	id := getRequestVar(r, "moduleId")
-	adapterEntries.mtx.RLock()
-	defer adapterEntries.mtx.RUnlock()
-	adapter, ok := adapterEntries.m[id]
+	s.adapterEntries.mtx.RLock()
+	defer s.adapterEntries.mtx.RUnlock()
+	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
 	}
@@ -322,11 +322,11 @@ func handleModuleTableEntryPost(r *http.Request) routeResponse {
 		"value": req.Value,
 	}}
 }
-func handleModuleTableEntryGet(r *http.Request) routeResponse {
+func (s *HiveServer) handleModuleTableEntryGet(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	adapterEntries.mtx.RLock()
-	defer adapterEntries.mtx.RUnlock()
-	adapter, ok := adapterEntries.m[id]
+	s.adapterEntries.mtx.RLock()
+	defer s.adapterEntries.mtx.RUnlock()
+	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
 	}
@@ -342,15 +342,15 @@ func handleModuleTableEntryGet(r *http.Request) routeResponse {
 	}
 	return routeResponse{body: entry}
 }
-func handleModuleTableEntryPut(r *http.Request) routeResponse {
+func (s *HiveServer) handleModuleTableEntryPut(r *http.Request) routeResponse {
 	var req createModuleTableEntryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
 	}
 	id := getRequestVar(r, "moduleId")
-	adapterEntries.mtx.RLock()
-	defer adapterEntries.mtx.RUnlock()
-	adapter, ok := adapterEntries.m[id]
+	s.adapterEntries.mtx.RLock()
+	defer s.adapterEntries.mtx.RUnlock()
+	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
 	}
@@ -368,11 +368,11 @@ func handleModuleTableEntryPut(r *http.Request) routeResponse {
 		"value": req.Value,
 	}}
 }
-func handleModuleTableEntryDelete(r *http.Request) routeResponse {
+func (s *HiveServer) handleModuleTableEntryDelete(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	adapterEntries.mtx.RLock()
-	defer adapterEntries.mtx.RUnlock()
-	adapter, ok := adapterEntries.m[id]
+	s.adapterEntries.mtx.RLock()
+	defer s.adapterEntries.mtx.RUnlock()
+	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
 	}
@@ -394,7 +394,7 @@ type linkEntry struct {
 	Interfaces []string `json:"interfaces"`
 }
 
-func handleLinkList(r *http.Request) routeResponse {
+func (s *HiveServer) handleLinkList(r *http.Request) routeResponse {
 	entries := []*linkEntry{}
 	return routeResponse{body: entries}
 }
@@ -404,7 +404,7 @@ type createLinkRequest struct {
 	Interfaces []string `json:"interfaces"`
 }
 
-func handleLinkPost(r *http.Request) routeResponse {
+func (s *HiveServer) handleLinkPost(r *http.Request) routeResponse {
 	var req createLinkRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
@@ -417,13 +417,13 @@ func handleLinkPost(r *http.Request) routeResponse {
 	}
 	var adapters []Adapter
 	for _, id := range req.Modules {
-		a, ok := adapterEntries.m[id]
+		a, ok := s.adapterEntries.m[id]
 		if !ok {
 			panic(fmt.Errorf("Reference to module %s not found in connect request", id))
 		}
 		adapters = append(adapters, a)
 	}
-	id, err := adapterEntries.patchPanel.Connect(adapters[0], adapters[1], req.Interfaces[0], req.Interfaces[1])
+	id, err := s.adapterEntries.patchPanel.Connect(adapters[0], adapters[1], req.Interfaces[0], req.Interfaces[1])
 	if err != nil {
 		panic(err)
 	}
@@ -434,13 +434,13 @@ func handleLinkPost(r *http.Request) routeResponse {
 		},
 	}
 }
-func handleLinkGet(r *http.Request) routeResponse {
+func (s *HiveServer) handleLinkGet(r *http.Request) routeResponse {
 	return routeResponse{}
 }
-func handleLinkPut(r *http.Request) routeResponse {
+func (s *HiveServer) handleLinkPut(r *http.Request) routeResponse {
 	return routeResponse{}
 }
-func handleLinkDelete(r *http.Request) routeResponse {
+func (s *HiveServer) handleLinkDelete(r *http.Request) routeResponse {
 	return routeResponse{}
 }
 
@@ -449,9 +449,9 @@ type interfaceEntry struct {
 	Name string `json:"name"`
 }
 
-func handleModuleInterfaceList(r *http.Request) routeResponse {
+func (s *HiveServer) handleModuleInterfaceList(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	adapter, ok := adapterEntries.m[id]
+	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
 	}
@@ -464,9 +464,9 @@ func handleModuleInterfaceList(r *http.Request) routeResponse {
 	}
 	return routeResponse{body: interfaces}
 }
-func handleModuleInterfaceGet(r *http.Request) routeResponse {
+func (s *HiveServer) handleModuleInterfaceGet(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	adapter, ok := adapterEntries.m[id]
+	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
 	}
@@ -486,7 +486,7 @@ type policyEntry struct {
 	Module string `json:"module"`
 }
 
-func handleModuleInterfacePolicyList(r *http.Request) routeResponse {
+func (s *HiveServer) handleModuleInterfacePolicyList(r *http.Request) routeResponse {
 	entries := []*policyEntry{}
 	return routeResponse{body: entries}
 }
@@ -495,16 +495,16 @@ type createPolicyRequest struct {
 	Module string `json:"module"`
 }
 
-func handleModuleInterfacePolicyPost(r *http.Request) routeResponse {
+func (s *HiveServer) handleModuleInterfacePolicyPost(r *http.Request) routeResponse {
 	var req createPolicyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
 	}
-	adapterA, ok := adapterEntries.m[getRequestVar(r, "moduleId")]
+	adapterA, ok := s.adapterEntries.m[getRequestVar(r, "moduleId")]
 	if !ok {
 		return notFound()
 	}
-	adapterB, ok := adapterEntries.m[req.Module]
+	adapterB, ok := s.adapterEntries.m[req.Module]
 	if !ok {
 		panic(fmt.Errorf("Reference to module %s not found", req.Module))
 	}
@@ -513,7 +513,7 @@ func handleModuleInterfacePolicyPost(r *http.Request) routeResponse {
 	if ifc == nil {
 		return notFound()
 	}
-	id, err := adapterEntries.patchPanel.EnablePolicy(adapterA, adapterB, ifc)
+	id, err := s.adapterEntries.patchPanel.EnablePolicy(adapterA, adapterB, ifc)
 	if err != nil {
 		panic(err)
 	}
@@ -524,21 +524,33 @@ func handleModuleInterfacePolicyPost(r *http.Request) routeResponse {
 		},
 	}
 }
-func handleModuleInterfacePolicyGet(r *http.Request) routeResponse {
+func (s *HiveServer) handleModuleInterfacePolicyGet(r *http.Request) routeResponse {
 	return routeResponse{}
 }
-func handleModuleInterfacePolicyPut(r *http.Request) routeResponse {
+func (s *HiveServer) handleModuleInterfacePolicyPut(r *http.Request) routeResponse {
 	return routeResponse{}
 }
-func handleModuleInterfacePolicyDelete(r *http.Request) routeResponse {
+func (s *HiveServer) handleModuleInterfacePolicyDelete(r *http.Request) routeResponse {
 	return routeResponse{}
 }
 
-func NewServer() http.Handler {
-	initServerOnce.Do(initServerVars)
+func (s *HiveServer) Handler() http.Handler {
+	return s.handler
+}
 
+func (s *HiveServer) Close() error {
+	if s != nil {
+		s.adapterEntries.patchPanel.Close()
+	}
+	return nil
+}
+
+func NewServer() *HiveServer {
 	Info.Println("IOVisor HTTP Daemon starting...")
 	rtr := mux.NewRouter()
+
+	s := &HiveServer{handler: rtr}
+	s.Init()
 
 	// modules
 	// modules/{moduleId}/interfaces
@@ -548,40 +560,40 @@ func NewServer() http.Handler {
 	// links
 
 	mod := rtr.PathPrefix("/modules").Subrouter()
-	mod.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleList))
-	mod.Methods("POST").Path("/").HandlerFunc(makeHandler(handleModulePost))
-	mod.Methods("GET").Path("/{moduleId}").HandlerFunc(makeHandler(handleModuleGet))
-	mod.Methods("PUT").Path("/{moduleId}").HandlerFunc(makeHandler(handleModulePut))
-	mod.Methods("DELETE").Path("/{moduleId}").HandlerFunc(makeHandler(handleModuleDelete))
+	mod.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleModuleList))
+	mod.Methods("POST").Path("/").HandlerFunc(makeHandler(s.handleModulePost))
+	mod.Methods("GET").Path("/{moduleId}").HandlerFunc(makeHandler(s.handleModuleGet))
+	mod.Methods("PUT").Path("/{moduleId}").HandlerFunc(makeHandler(s.handleModulePut))
+	mod.Methods("DELETE").Path("/{moduleId}").HandlerFunc(makeHandler(s.handleModuleDelete))
 
 	ifc := mod.PathPrefix("/{moduleId}/interfaces").Subrouter()
-	ifc.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleInterfaceList))
-	ifc.Methods("GET").Path("/{interfaceId}").HandlerFunc(makeHandler(handleModuleInterfaceGet))
+	ifc.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleModuleInterfaceList))
+	ifc.Methods("GET").Path("/{interfaceId}").HandlerFunc(makeHandler(s.handleModuleInterfaceGet))
 
 	ftr := ifc.PathPrefix("/{interfaceId}/policies").Subrouter()
-	ftr.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleInterfacePolicyList))
-	ftr.Methods("POST").Path("/").HandlerFunc(makeHandler(handleModuleInterfacePolicyPost))
-	ftr.Methods("GET").Path("/{policyId}").HandlerFunc(makeHandler(handleModuleInterfacePolicyGet))
-	ftr.Methods("PUT").Path("/{policyId}").HandlerFunc(makeHandler(handleModuleInterfacePolicyPut))
-	ftr.Methods("DELETE").Path("/{policyId}").HandlerFunc(makeHandler(handleModuleInterfacePolicyDelete))
+	ftr.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleModuleInterfacePolicyList))
+	ftr.Methods("POST").Path("/").HandlerFunc(makeHandler(s.handleModuleInterfacePolicyPost))
+	ftr.Methods("GET").Path("/{policyId}").HandlerFunc(makeHandler(s.handleModuleInterfacePolicyGet))
+	ftr.Methods("PUT").Path("/{policyId}").HandlerFunc(makeHandler(s.handleModuleInterfacePolicyPut))
+	ftr.Methods("DELETE").Path("/{policyId}").HandlerFunc(makeHandler(s.handleModuleInterfacePolicyDelete))
 
 	tbl := mod.PathPrefix("/{moduleId}/tables").Subrouter()
-	tbl.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleTableList))
-	tbl.Methods("GET").Path("/{tableId}").HandlerFunc(makeHandler(handleModuleTableGet))
+	tbl.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleModuleTableList))
+	tbl.Methods("GET").Path("/{tableId}").HandlerFunc(makeHandler(s.handleModuleTableGet))
 
 	ent := tbl.PathPrefix("/{tableId}/entries").Subrouter()
-	ent.Methods("GET").Path("/").HandlerFunc(makeHandler(handleModuleTableEntryList))
-	ent.Methods("POST").Path("/").HandlerFunc(makeHandler(handleModuleTableEntryPost))
-	ent.Methods("GET").Path("/{entryId}").HandlerFunc(makeHandler(handleModuleTableEntryGet))
-	ent.Methods("PUT").Path("/{entryId}").HandlerFunc(makeHandler(handleModuleTableEntryPut))
-	ent.Methods("DELETE").Path("/{entryId}").HandlerFunc(makeHandler(handleModuleTableEntryDelete))
+	ent.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleModuleTableEntryList))
+	ent.Methods("POST").Path("/").HandlerFunc(makeHandler(s.handleModuleTableEntryPost))
+	ent.Methods("GET").Path("/{entryId}").HandlerFunc(makeHandler(s.handleModuleTableEntryGet))
+	ent.Methods("PUT").Path("/{entryId}").HandlerFunc(makeHandler(s.handleModuleTableEntryPut))
+	ent.Methods("DELETE").Path("/{entryId}").HandlerFunc(makeHandler(s.handleModuleTableEntryDelete))
 
 	lnk := rtr.PathPrefix("/links").Subrouter()
-	lnk.Methods("GET").Path("/").HandlerFunc(makeHandler(handleLinkList))
-	lnk.Methods("POST").Path("/").HandlerFunc(makeHandler(handleLinkPost))
-	lnk.Methods("GET").Path("/{connId}").HandlerFunc(makeHandler(handleLinkGet))
-	lnk.Methods("PUT").Path("/{connId}").HandlerFunc(makeHandler(handleLinkPut))
-	lnk.Methods("DELETE").Path("/{connId}").HandlerFunc(makeHandler(handleLinkDelete))
+	lnk.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleLinkList))
+	lnk.Methods("POST").Path("/").HandlerFunc(makeHandler(s.handleLinkPost))
+	lnk.Methods("GET").Path("/{connId}").HandlerFunc(makeHandler(s.handleLinkGet))
+	lnk.Methods("PUT").Path("/{connId}").HandlerFunc(makeHandler(s.handleLinkPut))
+	lnk.Methods("DELETE").Path("/{connId}").HandlerFunc(makeHandler(s.handleLinkDelete))
 
-	return rtr
+	return s
 }

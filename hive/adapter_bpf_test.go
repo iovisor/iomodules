@@ -108,7 +108,9 @@ func wrapObject(body interface{}) io.Reader {
 }
 
 func TestModuleCreate(t *testing.T) {
-	srv := httptest.NewServer(NewServer())
+	s := NewServer()
+	defer s.Close()
+	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
 	testValues := []testCase{
@@ -129,7 +131,9 @@ func TestModuleCreate(t *testing.T) {
 }
 
 func TestModuleConnect(t *testing.T) {
-	srv := httptest.NewServer(NewServer())
+	s := NewServer()
+	defer s.Close()
+	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
 	var t1, t2 moduleEntry
@@ -154,7 +158,9 @@ func TestModuleConnect(t *testing.T) {
 }
 
 func TestModuleRedirect(t *testing.T) {
-	srv := httptest.NewServer(NewServer())
+	s := NewServer()
+	defer s.Close()
+	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
 	testns1 := NewNs()
@@ -223,7 +229,9 @@ func TestModuleRedirect(t *testing.T) {
 }
 
 func TestModulePolicy(t *testing.T) {
-	srv := httptest.NewServer(NewServer())
+	s := NewServer()
+	defer s.Close()
+	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
 	testns1 := NewNs()
