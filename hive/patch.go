@@ -43,6 +43,7 @@ type PatchPanel struct {
 	tailcallFd    int
 	netdevRxFd    int
 	netdevTxFd    int
+	kfreeFd       int
 	modules       AdapterTable
 	links         AdapterTable
 	moduleHandles *HandlePool
@@ -107,6 +108,14 @@ CREATE TABLE links (
 		return
 	}
 	pp.tailcallFd, err = pp.adapter.bpf.Load("recv_tailcall", C.BPF_PROG_TYPE_SCHED_ACT)
+	if err != nil {
+		return
+	}
+	pp.kfreeFd, err = pp.adapter.bpf.Load("metadata_kfree_skbmem", C.BPF_PROG_TYPE_KPROBE)
+	if err != nil {
+		return
+	}
+	err = pp.adapter.bpf.AttachKprobe("kfree_skbmem", pp.kfreeFd)
 	if err != nil {
 		return
 	}

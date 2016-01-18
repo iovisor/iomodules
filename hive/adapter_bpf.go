@@ -19,6 +19,7 @@ package hive
 import (
 	"bytes"
 	"fmt"
+	"regexp"
 	"strings"
 	"unsafe"
 )
@@ -28,13 +29,15 @@ import (
 #cgo LDFLAGS: -lbcc
 #include <bcc/bpf_common.h>
 #include <bcc/libbpf.h>
+void perf_reader_free(void *ptr);
 */
 import "C"
 
 // BpfModule type
 type BpfModule struct {
-	p     unsafe.Pointer
-	funcs map[string]int
+	p       unsafe.Pointer
+	funcs   map[string]int
+	kprobes map[string]unsafe.Pointer
 }
 
 // NewBpfModule constructor
@@ -52,18 +55,27 @@ func NewBpfModule(code string, cflags []string) *BpfModule {
 	}
 	cs := C.CString(code)
 	defer C.free(unsafe.Pointer(cs))
-	c := C.bpf_module_create_c_from_string(cs, 0, cflagsP, C.int(len(cflagsC)))
+	c := C.bpf_module_create_c_from_string(cs, 2, cflagsP, C.int(len(cflagsC)))
 	if c == nil {
 		return nil
 	}
 	return &BpfModule{
-		p:     c,
-		funcs: make(map[string]int),
+		p:       c,
+		funcs:   make(map[string]int),
+		kprobes: make(map[string]unsafe.Pointer),
 	}
 }
 func (bpf *BpfModule) Close() {
 	Debug.Println("Closing BpfModule")
 	C.bpf_module_destroy(bpf.p)
+	// close the kprobes opened by this module
+	for k, v := range bpf.kprobes {
+		C.perf_reader_free(v)
+		desc := fmt.Sprintf("-:kprobes/%s", k)
+		descCS := C.CString(desc)
+		C.bpf_detach_kprobe(descCS)
+		C.free(unsafe.Pointer(descCS))
+	}
 }
 
 func (bpf *BpfModule) initRxHandler() (int, error) {
@@ -113,6 +125,28 @@ func (bpf *BpfModule) load(name string, progType int) (int, error) {
 		return -1, fmt.Errorf("Error loading bpf program:\n%s", msg)
 	}
 	return int(fd), nil
+}
+
+var kprobeRegexp = regexp.MustCompile("[+.]")
+
+func (bpf *BpfModule) AttachKprobe(event string, fd int) error {
+	evName := "p_" + kprobeRegexp.ReplaceAllString(event, "_")
+	desc := fmt.Sprintf("p:kprobes/%s %s", evName, event)
+	if _, ok := bpf.kprobes[evName]; ok {
+		return nil
+	}
+
+	evNameCS := C.CString(evName)
+	descCS := C.CString(desc)
+	res := C.bpf_attach_kprobe(C.int(fd), evNameCS, descCS, -1, 0, -1, nil, nil)
+	C.free(unsafe.Pointer(evNameCS))
+	C.free(unsafe.Pointer(descCS))
+
+	if res == nil {
+		return fmt.Errorf("Failed to attach BPF kprobe")
+	}
+	bpf.kprobes[evName] = res
+	return nil
 }
 
 func (bpf *BpfModule) TableSize() uint64 {

@@ -69,6 +69,8 @@ static int pkt_drop(void *pkt, struct metadata *md);
 `
 
 var patchC string = `
+#include <linux/ptrace.h>
+
 BPF_TABLE_PUBLIC("array", int, struct metadata, metadata, 8);
 
 BPF_TABLE("prog", int, int, modules, 1024);
@@ -89,15 +91,33 @@ struct link {
 
 BPF_TABLE("hash", struct link_key, struct link, links, 1024);
 
+// table for tracking metadata in skbs when packet is in-kernel
+BPF_TABLE("hash", uintptr_t, struct metadata, skb_metadata, 10240);
+
+// Attach to kfree_skbmem kprobe to reclaim metadata.
+// This is a bit of a hack, but all of the skb fields are written over when
+// traversing some parts of the kernel, like nft or netns boundary.
+int metadata_kfree_skbmem(struct pt_regs *ctx, struct sk_buff *skb) {
+	uintptr_t skbkey = (uintptr_t)skb | 1;
+	skb_metadata.delete(&skbkey);
+	return 0;
+}
+
 // Invoke the next module in the chain.
 // When next module is a bpf function and is successfully invoked, this
 // function never returns.
 static int invoke_module(struct __sk_buff *skb, struct metadata *md, struct link *link) {
 	if (link->module_id != 0) {
+		int md_id = bpf_get_smp_processor_id();
+		skb->cb[0] = md_id;
 		md->in_ifc = link->ifc;
 		md->module_id = link->module_id;
+		metadata.update(&md_id, md);
 		modules.call(skb, md->module_id);
 	} else {
+		uintptr_t skbkey = (uintptr_t)skb | 1;
+		skb_metadata.update(&skbkey, md);
+		//bpf_trace_printk("set metadata for 0x%lx\n", skbkey);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,0)
 		bpf_redirect(link->ifc, 0);
 		return TC_ACT_REDIRECT;
@@ -112,11 +132,16 @@ static int invoke_module(struct __sk_buff *skb, struct metadata *md, struct link
 
 static int recv_netdev(struct __sk_buff *skb, bool is_egress) {
 	int md_id = bpf_get_smp_processor_id();
-	struct metadata *md = metadata.lookup(&md_id);
-	if (!md)
-		return TC_ACT_SHOT;
 
-	skb->cb[0] = md_id;
+	struct metadata md;
+	// recover metadata from the skb lookaside table
+	// (will not occur for packets that are only rx'd from a netdev once)
+	uintptr_t skbkey = (uintptr_t)skb | 1;
+	struct metadata *skb_md = skb_metadata.lookup(&skbkey);
+	if (skb_md)
+		md = *skb_md;
+	else
+		md = (struct metadata){};
 
 	struct link_key lkey = {
 		.module_id = 0,
@@ -129,11 +154,9 @@ static int recv_netdev(struct __sk_buff *skb, bool is_egress) {
 		return TC_ACT_SHOT;
 	}
 
-	*md = (struct metadata){
-		.pktlen = skb->len,
-		.is_egress = is_egress,
-	};
-	return invoke_module(skb, md, link);
+	md.pktlen = skb->len;
+	md.is_egress = is_egress;
+	return invoke_module(skb, &md, link);
 }
 
 int recv_netdev_ingress(struct __sk_buff *skb) {
@@ -146,27 +169,32 @@ int recv_netdev_egress(struct __sk_buff *skb) {
 
 int recv_tailcall(struct __sk_buff *skb) {
 	int md_id = skb->cb[0];
-	struct metadata *md = metadata.lookup(&md_id);
-	if (!md)
+	struct metadata md;
+	struct metadata *md_ptr = metadata.lookup(&md_id);
+	if (!md_ptr)
 		return TC_ACT_SHOT;
+	md = *md_ptr;
 
 	struct link_key lkey = {
-		.module_id = md->module_id,
+		.module_id = md.module_id,
 	};
 	// Either a module should invoke a redirect action, or we need to
 	// lookup the next module in the chain.
-	if (md->redir_ifc) {
-		lkey.ifc = md->redir_ifc;
+	if (md.redir_ifc) {
+		lkey.ifc = md.redir_ifc;
 	} else {
-		lkey.ifc = md->in_ifc;
+		lkey.ifc = md.in_ifc;
 	}
 	struct link *link = links.lookup(&lkey);
 	if (!link) {
-		//if (md->is_egress)
+		uintptr_t skbkey = (uintptr_t)skb | 1;
+		skb_metadata.update(&skbkey, &md);
+		//bpf_trace_printk("set metadata for 0x%lx\n", skbkey);
+		//if (md.is_egress)
 			return TC_ACT_OK;
 		//return TC_ACT_SHOT;
 	}
-	return invoke_module(skb, md, link);
+	return invoke_module(skb, &md, link);
 }
 `
 
