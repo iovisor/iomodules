@@ -310,9 +310,9 @@ func (d *Dataplane) ParsePolicy(policy *Policy) (err error) {
 }
 
 type EndpointEntry struct {
-	Ip     string `db:"ip"`
-	Tenant string `db:"tenant"`
-	Epg    string `db:"epg"`
+	Ip     string `db:"ip" json:"ip"`
+	Tenant string `db:"tenant" json:"tenant"`
+	Epg    string `db:"epg" json:"epg"`
 }
 
 func (d *Dataplane) Endpoints() <-chan *EndpointEntry {

@@ -123,6 +123,18 @@ func getRequestVar(r *http.Request, key string) string {
 	return value
 }
 
+type infoEntry struct {
+	Id string `json:"id"`
+}
+
+func (g *GbpServer) handleInfoGet(r *http.Request) routeResponse {
+	return routeResponse{
+		body: &infoEntry{
+			Id: g.dataplane.Id(),
+		},
+	}
+}
+
 func (g *GbpServer) handlePolicyList(r *http.Request) routeResponse {
 	return notFound()
 }
@@ -180,6 +192,34 @@ func (g *GbpServer) handlePolicyDelete(r *http.Request) routeResponse {
 	return notFound()
 }
 
+func (g *GbpServer) handleEndpointList(r *http.Request) routeResponse {
+	entries := []*EndpointEntry{}
+	for endpoint := range g.dataplane.Endpoints() {
+		entries = append(entries, endpoint)
+	}
+	return routeResponse{body: entries}
+}
+
+func (g *GbpServer) handleEndpointPost(r *http.Request) routeResponse {
+	var req EndpointEntry
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		panic(err)
+	}
+	if err := g.dataplane.AddEndpoint(req.Ip, req.Tenant, req.Epg); err != nil {
+		panic(err)
+	}
+	return routeResponse{body: req}
+}
+func (g *GbpServer) handleEndpointGet(r *http.Request) routeResponse {
+	return notFound()
+}
+func (g *GbpServer) handleEndpointPut(r *http.Request) routeResponse {
+	return notFound()
+}
+func (g *GbpServer) handleEndpointDelete(r *http.Request) routeResponse {
+	return notFound()
+}
+
 func (g *GbpServer) Handler() http.Handler {
 	return g.handler
 }
@@ -197,12 +237,21 @@ func NewServer(upstreamUri, dataplaneUri string) (*GbpServer, error) {
 		return nil, err
 	}
 
+	rtr.Methods("GET").Path("/info").HandlerFunc(makeHandler(g.handleInfoGet))
+
 	pol := rtr.PathPrefix("/policies").Subrouter()
 	pol.Methods("POST").Path("/").HandlerFunc(makeHandler(g.handlePolicyPost))
 	pol.Methods("GET").Path("/").HandlerFunc(makeHandler(g.handlePolicyList))
 	pol.Methods("GET").Path("/{policyId}").HandlerFunc(makeHandler(g.handlePolicyGet))
 	pol.Methods("PUT").Path("/{policyId}").HandlerFunc(makeHandler(g.handlePolicyPut))
 	pol.Methods("DELETE").Path("/{policyId}").HandlerFunc(makeHandler(g.handlePolicyDelete))
+
+	end := rtr.PathPrefix("/endpoints").Subrouter()
+	end.Methods("POST").Path("/").HandlerFunc(makeHandler(g.handleEndpointPost))
+	end.Methods("GET").Path("/").HandlerFunc(makeHandler(g.handleEndpointList))
+	end.Methods("GET").Path("/{endpointId}").HandlerFunc(makeHandler(g.handleEndpointGet))
+	end.Methods("PUT").Path("/{endpointId}").HandlerFunc(makeHandler(g.handleEndpointPut))
+	end.Methods("DELETE").Path("/{endpointId}").HandlerFunc(makeHandler(g.handleEndpointDelete))
 
 	// new routes go here
 

@@ -140,7 +140,7 @@ func (p *PatchPanel) FD() int {
 }
 
 func (p *PatchPanel) Register(adapter *BpfAdapter, handle uint, fd int) error {
-	Info.Printf("PatchPanel: Registering module \"%s\"\n", adapter.Name())
+	Info.Printf("PatchPanel: Registering module \"%s(%d)\"\n", adapter.Name(), handle)
 	// update the module tail call table
 	err := p.modules.Set(fmt.Sprintf("%d", handle), strconv.Itoa(fd))
 	if err != nil {
