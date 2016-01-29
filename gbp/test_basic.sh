@@ -1,7 +1,7 @@
 #!/bin/bash
 
 S=gbptest
-hivesock=127.0.0.1:5000
+hoversock=127.0.0.1:5000
 gbpsock=127.0.0.1:5001
 upstreamsock=127.0.0.1:5002
 files=()
@@ -24,7 +24,7 @@ function cleanup() {
 trap cleanup EXIT
 
 tmux new-session -s $S -n "source" -d
-tmux new-window -t $S:1 -n "hived"
+tmux new-window -t $S:1 -n "hoverd"
 tmux new-window -t $S:2 -n "upstream"
 tmux new-window -t $S:3 -n "gbp"
 tmux new-window -t $S:4 -n "test1"
@@ -33,28 +33,28 @@ tmux new-window -t $S:5 -n "test2"
 # pull and build the dependencies of this test, stop and exit if any one command fails
 sleep 20 &
 w=$!
-tmux send -t $S:0 'go get github.com/iovisor/iomodules/hive/hived; x=$?' C-m
+tmux send -t $S:0 'go get github.com/iovisor/iomodules/hover/hoverd; x=$?' C-m
 tmux send -t $S:0 'go get github.com/iovisor/iomodules/gbp/gbp; x=$[$x+$?]' C-m
-tmux send -t $S:0 'go install github.com/iovisor/iomodules/hive/hived; x=$[$x+$?]' C-m
+tmux send -t $S:0 'go install github.com/iovisor/iomodules/hover/hoverd; x=$[$x+$?]' C-m
 tmux send -t $S:0 'go install github.com/iovisor/iomodules/gbp/gbp; x=$[$x+$?]' C-m
 tmux send -t $S:0 'docker pull gliderlabs/alpine; x=$[$x+$?]' C-m
 tmux send -t $S:0 "[[ \$x -eq 0 ]] && kill $w" C-m
 wait $w &> /dev/null && { echo "source fetch took too long"; exit 1; }
 
-# Start the hive server, a stub upstream server, and finally the gbp server.
+# Start the hover server, a stub upstream server, and finally the gbp server.
 # The upstream server should be replaced with a real GBP implementation.
 sleep 10 &
 w=$!
-tmux send -t $S:1 "sudo -E hived -listen $hivesock" C-m
+tmux send -t $S:1 "sudo -E hoverd -listen $hoversock" C-m
 sleep 1
 tmux send -t $S:2 'echo -en "HTTP/1.0 200 OK\r\n\r\n" | nc -l 5002' C-m
 tmux send -t $S:2 "kill $w" C-m
 sleep 1
-tmux send -t $S:3 "gbp -upstream http://$upstreamsock -listen $gbpsock -dataplane http://$hivesock" C-m
+tmux send -t $S:3 "gbp -upstream http://$upstreamsock -listen $gbpsock -dataplane http://$hoversock" C-m
 sleep 1
 wait $w &> /dev/null && { echo "server startup took too long"; exit 1; }
 
-# find the new uuid of the gbp server in the hive db
+# find the new uuid of the gbp server in the hover db
 id=$(http GET 127.0.0.1:5001/info | jq -r .id)
 echo $id
 
@@ -203,8 +203,8 @@ DELIM__
 
 tmux send -t $S:2 "python2 $f" C-m
 echo '{"resolved-policy-uri": "/restconf/operational/resolved-policy:resolved-policies/resolved-policy/tenant-red/clients/tenant-red/webservers"}' | http POST http://$gbpsock/policies/
-echo '{"module": "'$id'"}' | http POST http://$hivesock/modules/host/interfaces/$if1/policies/
-echo '{"module": "'$id'"}' | http POST http://$hivesock/modules/host/interfaces/$if2/policies/
+echo '{"module": "'$id'"}' | http POST http://$hoversock/modules/host/interfaces/$if1/policies/
+echo '{"module": "'$id'"}' | http POST http://$hoversock/modules/host/interfaces/$if2/policies/
 echo '{"ip": "'$ip1'", "tenant": "tenant-red", "epg": "webservers"}' | http POST http://$gbpsock/endpoints/
 echo '{"ip": "'$ip2'", "tenant": "tenant-red", "epg": "clients"}' | http POST http://$gbpsock/endpoints/
 

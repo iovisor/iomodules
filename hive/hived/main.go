@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/iovisor/iomodules/hive"
+	"github.com/iovisor/iomodules/hover"
 )
 
 var listenSocket string
@@ -40,12 +40,12 @@ func main() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGTERM)
 	signal.Notify(c, os.Interrupt)
-	s := hive.NewServer()
+	s := hover.NewServer()
 	go func() {
 		<-c
 		s.Close()
 		os.Exit(1)
 	}()
-	hive.Info.Printf("Hive Server listening on %s\n", listenSocket)
+	hover.Info.Printf("Hover Server listening on %s\n", listenSocket)
 	http.ListenAndServe(listenSocket, s.Handler())
 }

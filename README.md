@@ -17,14 +17,14 @@ git remote add drzaeus77 https://github.com/drzaeus77/netlink
 git fetch drzaeus77
 git reset --hard drzaeus77/master
 
-go get github.com/iovisor/iomodules/hive
-go install github.com/iovisor/iomodules/hive/hived
+go get github.com/iovisor/iomodules/hover
+go install github.com/iovisor/iomodules/hover/hoverd
 
 go get github.com/iovisor/iomodules/gbp
 sudo -E go test github.com/iovisor/iomodules/gbp
 go install github.com/iovisor/iomodules/gbp/gbp
 
 # run the binaries in standalone mode
-sudo $GOPATH/bin/hived
+sudo $GOPATH/bin/hoverd
 $GOPATH/bin/gbp -upstream $ODL_SOUTHBOUND_URL
 ```

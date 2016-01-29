@@ -29,7 +29,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/iovisor/iomodules/hive"
+	"github.com/iovisor/iomodules/hover"
 	"github.com/vishvananda/netlink"
 )
 
@@ -172,13 +172,13 @@ func newMockUpstream() http.Handler {
 }
 
 func TestBasicPolicy(t *testing.T) {
-	hiveServer := hive.NewServer()
-	defer hiveServer.Close()
-	hive := httptest.NewServer(hiveServer.Handler())
-	defer hive.Close()
+	hoverServer := hover.NewServer()
+	defer hoverServer.Close()
+	hover := httptest.NewServer(hoverServer.Handler())
+	defer hover.Close()
 	upstream := httptest.NewServer(newMockUpstream())
 	defer upstream.Close()
-	g, err := NewServer(upstream.URL, hive.URL)
+	g, err := NewServer(upstream.URL, hover.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,13 +285,13 @@ func gatherOneLink(t *testing.T, ch <-chan netlink.LinkUpdate) netlink.Link {
 }
 
 func TestInterfaces(t *testing.T) {
-	hiveServer := hive.NewServer()
-	defer hiveServer.Close()
-	hive := httptest.NewServer(hiveServer.Handler())
-	defer hive.Close()
+	hoverServer := hover.NewServer()
+	defer hoverServer.Close()
+	hover := httptest.NewServer(hoverServer.Handler())
+	defer hover.Close()
 	upstream := httptest.NewServer(newMockUpstream())
 	defer upstream.Close()
-	g, err := NewServer(upstream.URL, hive.URL)
+	g, err := NewServer(upstream.URL, hover.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +322,7 @@ func TestInterfaces(t *testing.T) {
 
 	link1 := gatherOneLink(t, ch)
 	testOne(t, testCase{
-		url:  fmt.Sprintf("%s/modules/host/interfaces/%s/policies/", hive.URL, link1.Attrs().Name),
+		url:  fmt.Sprintf("%s/modules/host/interfaces/%s/policies/", hover.URL, link1.Attrs().Name),
 		body: strings.NewReader(fmt.Sprintf(`{"module": "%s"}`, g.dataplane.Id())),
 		code: http.StatusOK,
 	}, nil)
@@ -340,7 +340,7 @@ func TestInterfaces(t *testing.T) {
 	Debug.Printf("ip2=%s\n", ip2)
 
 	testOne(t, testCase{
-		url:  fmt.Sprintf("%s/modules/host/interfaces/%s/policies/", hive.URL, link2.Attrs().Name),
+		url:  fmt.Sprintf("%s/modules/host/interfaces/%s/policies/", hover.URL, link2.Attrs().Name),
 		body: strings.NewReader(fmt.Sprintf(`{"module": "%s"}`, g.dataplane.Id())),
 		code: http.StatusOK,
 	}, nil)

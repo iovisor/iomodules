@@ -14,7 +14,7 @@
 
 // vim: set ts=8:sts=8:sw=8:noet
 
-package hive
+package hover
 
 func NewAdapter(req *createModuleRequest, pp *PatchPanel) (adapter Adapter, err error) {
 	id, err := NewUUID4()

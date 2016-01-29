@@ -1,6 +1,6 @@
 // vim: set ts=8:sts=8:sw=8:noet
 
-package hive
+package hover
 
 import (
 	"encoding/json"
@@ -17,7 +17,7 @@ type routeResponse struct {
 	body        interface{}
 }
 
-type HiveServer struct {
+type HoverServer struct {
 	handler        http.Handler
 	adapterEntries AdapterEntries
 }
@@ -180,7 +180,7 @@ func getRequestVar(r *http.Request, key string) string {
 	return value
 }
 
-func (s *HiveServer) Init() (err error) {
+func (s *HoverServer) Init() (err error) {
 	s.adapterEntries.m = make(map[string]Adapter)
 	s.adapterEntries.patchPanel, err = NewPatchPanel()
 	if err != nil {
@@ -199,13 +199,13 @@ func (s *HiveServer) Init() (err error) {
 	return
 }
 
-func (s *HiveServer) handleModuleList(r *http.Request) routeResponse {
+func (s *HoverServer) handleModuleList(r *http.Request) routeResponse {
 	entries := s.adapterEntries.GetAll()
 	return routeResponse{body: entries}
 }
 
 // handleModulePost processes creation of a new Module
-func (s *HiveServer) handleModulePost(r *http.Request) routeResponse {
+func (s *HoverServer) handleModulePost(r *http.Request) routeResponse {
 	var req createModuleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
@@ -219,7 +219,7 @@ func (s *HiveServer) handleModulePost(r *http.Request) routeResponse {
 	return routeResponse{body: entry}
 }
 
-func (s *HiveServer) handleModuleGet(r *http.Request) routeResponse {
+func (s *HoverServer) handleModuleGet(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
 	entry := s.adapterEntries.Get(id)
 	if entry == nil {
@@ -227,10 +227,10 @@ func (s *HiveServer) handleModuleGet(r *http.Request) routeResponse {
 	}
 	return routeResponse{body: entry}
 }
-func (s *HiveServer) handleModulePut(r *http.Request) routeResponse {
+func (s *HoverServer) handleModulePut(r *http.Request) routeResponse {
 	return routeResponse{}
 }
-func (s *HiveServer) handleModuleDelete(r *http.Request) routeResponse {
+func (s *HoverServer) handleModuleDelete(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
 	s.adapterEntries.mtx.Lock()
 	defer s.adapterEntries.mtx.Unlock()
@@ -243,7 +243,7 @@ func (s *HiveServer) handleModuleDelete(r *http.Request) routeResponse {
 	return routeResponse{}
 }
 
-func (s *HiveServer) handleModuleTableList(r *http.Request) routeResponse {
+func (s *HoverServer) handleModuleTableList(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
 	s.adapterEntries.mtx.RLock()
 	defer s.adapterEntries.mtx.RUnlock()
@@ -253,7 +253,7 @@ func (s *HiveServer) handleModuleTableList(r *http.Request) routeResponse {
 	}
 	return routeResponse{body: adapter.Tables()}
 }
-func (s *HiveServer) handleModuleTableGet(r *http.Request) routeResponse {
+func (s *HoverServer) handleModuleTableGet(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
 	s.adapterEntries.mtx.RLock()
 	defer s.adapterEntries.mtx.RUnlock()
@@ -269,7 +269,7 @@ func (s *HiveServer) handleModuleTableGet(r *http.Request) routeResponse {
 	return routeResponse{body: tbl.Config()}
 }
 
-func (s *HiveServer) handleModuleTableEntryList(r *http.Request) routeResponse {
+func (s *HoverServer) handleModuleTableEntryList(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
 	s.adapterEntries.mtx.RLock()
 	defer s.adapterEntries.mtx.RUnlock()
@@ -297,7 +297,7 @@ type createModuleTableEntryRequest struct {
 	Value string `json:"value"`
 }
 
-func (s *HiveServer) handleModuleTableEntryPost(r *http.Request) routeResponse {
+func (s *HoverServer) handleModuleTableEntryPost(r *http.Request) routeResponse {
 	var req createModuleTableEntryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
@@ -322,7 +322,7 @@ func (s *HiveServer) handleModuleTableEntryPost(r *http.Request) routeResponse {
 		"value": req.Value,
 	}}
 }
-func (s *HiveServer) handleModuleTableEntryGet(r *http.Request) routeResponse {
+func (s *HoverServer) handleModuleTableEntryGet(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
 	s.adapterEntries.mtx.RLock()
 	defer s.adapterEntries.mtx.RUnlock()
@@ -342,7 +342,7 @@ func (s *HiveServer) handleModuleTableEntryGet(r *http.Request) routeResponse {
 	}
 	return routeResponse{body: entry}
 }
-func (s *HiveServer) handleModuleTableEntryPut(r *http.Request) routeResponse {
+func (s *HoverServer) handleModuleTableEntryPut(r *http.Request) routeResponse {
 	var req createModuleTableEntryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
@@ -368,7 +368,7 @@ func (s *HiveServer) handleModuleTableEntryPut(r *http.Request) routeResponse {
 		"value": req.Value,
 	}}
 }
-func (s *HiveServer) handleModuleTableEntryDelete(r *http.Request) routeResponse {
+func (s *HoverServer) handleModuleTableEntryDelete(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
 	s.adapterEntries.mtx.RLock()
 	defer s.adapterEntries.mtx.RUnlock()
@@ -394,7 +394,7 @@ type linkEntry struct {
 	Interfaces []string `json:"interfaces"`
 }
 
-func (s *HiveServer) handleLinkList(r *http.Request) routeResponse {
+func (s *HoverServer) handleLinkList(r *http.Request) routeResponse {
 	entries := []*linkEntry{}
 	return routeResponse{body: entries}
 }
@@ -404,7 +404,7 @@ type createLinkRequest struct {
 	Interfaces []string `json:"interfaces"`
 }
 
-func (s *HiveServer) handleLinkPost(r *http.Request) routeResponse {
+func (s *HoverServer) handleLinkPost(r *http.Request) routeResponse {
 	var req createLinkRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
@@ -434,13 +434,13 @@ func (s *HiveServer) handleLinkPost(r *http.Request) routeResponse {
 		},
 	}
 }
-func (s *HiveServer) handleLinkGet(r *http.Request) routeResponse {
+func (s *HoverServer) handleLinkGet(r *http.Request) routeResponse {
 	return routeResponse{}
 }
-func (s *HiveServer) handleLinkPut(r *http.Request) routeResponse {
+func (s *HoverServer) handleLinkPut(r *http.Request) routeResponse {
 	return routeResponse{}
 }
-func (s *HiveServer) handleLinkDelete(r *http.Request) routeResponse {
+func (s *HoverServer) handleLinkDelete(r *http.Request) routeResponse {
 	return routeResponse{}
 }
 
@@ -449,7 +449,7 @@ type interfaceEntry struct {
 	Name string `json:"name"`
 }
 
-func (s *HiveServer) handleModuleInterfaceList(r *http.Request) routeResponse {
+func (s *HoverServer) handleModuleInterfaceList(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
 	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
@@ -464,7 +464,7 @@ func (s *HiveServer) handleModuleInterfaceList(r *http.Request) routeResponse {
 	}
 	return routeResponse{body: interfaces}
 }
-func (s *HiveServer) handleModuleInterfaceGet(r *http.Request) routeResponse {
+func (s *HoverServer) handleModuleInterfaceGet(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
 	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
@@ -486,7 +486,7 @@ type policyEntry struct {
 	Module string `json:"module"`
 }
 
-func (s *HiveServer) handleModuleInterfacePolicyList(r *http.Request) routeResponse {
+func (s *HoverServer) handleModuleInterfacePolicyList(r *http.Request) routeResponse {
 	entries := []*policyEntry{}
 	return routeResponse{body: entries}
 }
@@ -495,7 +495,7 @@ type createPolicyRequest struct {
 	Module string `json:"module"`
 }
 
-func (s *HiveServer) handleModuleInterfacePolicyPost(r *http.Request) routeResponse {
+func (s *HoverServer) handleModuleInterfacePolicyPost(r *http.Request) routeResponse {
 	var req createPolicyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
@@ -524,32 +524,32 @@ func (s *HiveServer) handleModuleInterfacePolicyPost(r *http.Request) routeRespo
 		},
 	}
 }
-func (s *HiveServer) handleModuleInterfacePolicyGet(r *http.Request) routeResponse {
+func (s *HoverServer) handleModuleInterfacePolicyGet(r *http.Request) routeResponse {
 	return routeResponse{}
 }
-func (s *HiveServer) handleModuleInterfacePolicyPut(r *http.Request) routeResponse {
+func (s *HoverServer) handleModuleInterfacePolicyPut(r *http.Request) routeResponse {
 	return routeResponse{}
 }
-func (s *HiveServer) handleModuleInterfacePolicyDelete(r *http.Request) routeResponse {
+func (s *HoverServer) handleModuleInterfacePolicyDelete(r *http.Request) routeResponse {
 	return routeResponse{}
 }
 
-func (s *HiveServer) Handler() http.Handler {
+func (s *HoverServer) Handler() http.Handler {
 	return s.handler
 }
 
-func (s *HiveServer) Close() error {
+func (s *HoverServer) Close() error {
 	if s != nil {
 		s.adapterEntries.patchPanel.Close()
 	}
 	return nil
 }
 
-func NewServer() *HiveServer {
+func NewServer() *HoverServer {
 	Info.Println("IOVisor HTTP Daemon starting...")
 	rtr := mux.NewRouter()
 
-	s := &HiveServer{handler: rtr}
+	s := &HoverServer{handler: rtr}
 	s.Init()
 
 	// modules
