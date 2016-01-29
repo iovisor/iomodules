@@ -18,7 +18,7 @@ function cleanup() {
     rm -f $f
   done
   tmux kill-session -t gbptest
-  docker rm -f gbptest1 gbptest2
+  docker rm -f gbptest1 gbptest2 &> /dev/null
 }
 
 trap cleanup EXIT
@@ -208,4 +208,4 @@ echo '{"module": "'$id'"}' | http POST http://$hivesock/modules/host/interfaces/
 echo '{"ip": "'$ip1'", "tenant": "tenant-red", "epg": "webservers"}' | http POST http://$gbpsock/endpoints/
 echo '{"ip": "'$ip2'", "tenant": "tenant-red", "epg": "clients"}' | http POST http://$gbpsock/endpoints/
 
-read -p "Enter: "
+read -p "tmux ready, run 'tmux attach -t $S' from another shell: "
