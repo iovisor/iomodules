@@ -17,8 +17,8 @@ function cleanup() {
   for f in ${files[@]}; do
     rm -f $f
   done
-  tmux kill-session -t gbptest
-  docker rm -f gbptest1 gbptest2 &> /dev/null
+  tmux kill-session -t $S
+  docker rm -f ${S}1 ${S}2 &> /dev/null
 }
 
 trap cleanup EXIT

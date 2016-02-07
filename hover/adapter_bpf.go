@@ -210,7 +210,7 @@ func (adapter *BpfAdapter) Perm() uint {
 }
 
 func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {
-	var code string
+	var code, fullCode string
 	var handlers []interface{}
 	for k, v := range config {
 		switch strings.ToLower(k) {
@@ -219,7 +219,8 @@ func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {
 			if !ok {
 				return fmt.Errorf("Expected code argument to be a string")
 			}
-			code = strings.Join([]string{iomoduleH, wrapperC, val}, "\n")
+			code = val
+			fullCode = strings.Join([]string{iomoduleH, wrapperC, val}, "\n")
 		case "handlers":
 			val, ok := v.([]interface{})
 			if !ok {
@@ -244,7 +245,7 @@ func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {
 		}
 	}
 
-	adapter.bpf = NewBpfModule(code, cflags)
+	adapter.bpf = NewBpfModule(fullCode, cflags)
 	if adapter.bpf == nil {
 		return fmt.Errorf("Could not load bpf code, check server log for details")
 	}

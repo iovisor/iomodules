@@ -45,6 +45,12 @@ static int handle_rx(void *pkt, struct metadata *md) {
 	return RX_OK;
 }
 `
+	syntaxErrorC = `
+static int handle_rx(void *pkt, struct metadata *md) {
+	if () {}
+	return RX_OK;
+}
+`
 
 	redirectC = `
 BPF_TABLE("array", int, int, redirect, 10);
@@ -122,6 +128,11 @@ func TestModuleCreate(t *testing.T) {
 		{
 			url:  srv.URL + "/modules/",
 			body: wrapCode(errorC, []string{"handle_rx"}),
+			code: http.StatusBadRequest,
+		},
+		{
+			url:  srv.URL + "/modules/",
+			body: wrapCode(syntaxErrorC, []string{"handle_rx"}),
 			code: http.StatusBadRequest,
 		},
 	}
