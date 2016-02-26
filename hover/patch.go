@@ -99,15 +99,15 @@ CREATE TABLE links (
 		return
 	}
 	Debug.Printf("Patch panel links table loaded: %v\n", pp.links.Config())
-	pp.netdevRxFd, err = pp.adapter.bpf.Load("recv_netdev_ingress", C.BPF_PROG_TYPE_SCHED_ACT)
+	pp.netdevRxFd, err = pp.adapter.bpf.Load("recv_netdev_ingress", C.BPF_PROG_TYPE_SCHED_CLS)
 	if err != nil {
 		return
 	}
-	pp.netdevTxFd, err = pp.adapter.bpf.Load("recv_netdev_egress", C.BPF_PROG_TYPE_SCHED_ACT)
+	pp.netdevTxFd, err = pp.adapter.bpf.Load("recv_netdev_egress", C.BPF_PROG_TYPE_SCHED_CLS)
 	if err != nil {
 		return
 	}
-	pp.tailcallFd, err = pp.adapter.bpf.Load("recv_tailcall", C.BPF_PROG_TYPE_SCHED_ACT)
+	pp.tailcallFd, err = pp.adapter.bpf.Load("recv_tailcall", C.BPF_PROG_TYPE_SCHED_CLS)
 	if err != nil {
 		return
 	}
@@ -192,7 +192,7 @@ func (p *PatchPanel) Connect(adapterA, adapterB Adapter, ifcA, ifcB string) (id 
 		}
 	}()
 
-	key1 := fmt.Sprintf("{%d %d 0}", adapterA.Handle(HandlerRx), if1.ID())
+	key1 := fmt.Sprintf("{%d %d 0 [0 0 0]}", adapterA.Handle(HandlerRx), if1.ID())
 	val1 := fmt.Sprintf("{%d %d 0 0}", adapterB.Handle(HandlerRx), if2.ID())
 	if err = p.links.Set(key1, val1); err != nil {
 		return
@@ -203,7 +203,7 @@ func (p *PatchPanel) Connect(adapterA, adapterB Adapter, ifcA, ifcB string) (id 
 		}
 	}()
 
-	key2 := fmt.Sprintf("{%d %d 0}", adapterB.Handle(HandlerRx), if2.ID())
+	key2 := fmt.Sprintf("{%d %d 0 [0 0 0]}", adapterB.Handle(HandlerRx), if2.ID())
 	val2 := fmt.Sprintf("{%d %d 0 0}", adapterA.Handle(HandlerRx), if1.ID())
 	if err = p.links.Set(key2, val2); err != nil {
 		return
@@ -261,10 +261,10 @@ func (p *PatchPanel) EnablePolicy(srcAdapter, rcvAdapter Adapter, srcIfc Interfa
 		}
 	}
 
-	k := fmt.Sprintf("{%d %d 0}", srcAdapter.Handle(HandlerRx), srcIfc.ID())
+	k := fmt.Sprintf("{%d %d 0 [0 0 0]}", srcAdapter.Handle(HandlerRx), srcIfc.ID())
 	v := fmt.Sprintf("{%d %d 0 0}", rcvAdapter.Handle(HandlerRx), rcvIfc.ID())
 	if o, ok := p.links.Get(k); ok {
-		k2 := fmt.Sprintf("{%d %d 0}", rcvAdapter.Handle(HandlerRx), rcvIfc.ID())
+		k2 := fmt.Sprintf("{%d %d 0 [0 0 0]}", rcvAdapter.Handle(HandlerRx), rcvIfc.ID())
 		v2 := o.(AdapterTablePair).Value.(string)
 		Debug.Printf("existing link %s = %s\n", k, v2)
 		if err = p.links.Set(k2, v2); err != nil {
@@ -276,11 +276,11 @@ func (p *PatchPanel) EnablePolicy(srcAdapter, rcvAdapter Adapter, srcIfc Interfa
 	}
 	defer cleanupLinkIfError(k)
 
-	k = fmt.Sprintf("{%d %d 1}", srcAdapter.Handle(HandlerRx), srcIfc.ID())
+	k = fmt.Sprintf("{%d %d 1 [0 0 0]}", srcAdapter.Handle(HandlerRx), srcIfc.ID())
 	v = fmt.Sprintf("{%d %d 0 0}", rcvAdapter.Handle(HandlerTx), rcvIfc.ID())
 	Debug.Printf("tx link %s\n", v)
 	if o, ok := p.links.Get(k); ok {
-		k2 := fmt.Sprintf("{%d %d 1}", rcvAdapter.Handle(HandlerTx), rcvIfc.ID())
+		k2 := fmt.Sprintf("{%d %d 1 [0 0 0]}", rcvAdapter.Handle(HandlerTx), rcvIfc.ID())
 		v2 := o.(AdapterTablePair).Value.(string)
 		Debug.Printf("existing link %s = %s\n", k, v2)
 		if err = p.links.Set(k2, v2); err != nil {
@@ -300,7 +300,7 @@ func (p *PatchPanel) EnablePolicy(srcAdapter, rcvAdapter Adapter, srcIfc Interfa
 		if err = ensureIngressFd(link, p.netdevRxFd); err != nil {
 			return
 		}
-		if err = ensureFqCodelFd(link, p.netdevTxFd); err != nil {
+		if err = ensureEgressFd(link, p.netdevTxFd); err != nil {
 			return
 		}
 	}
@@ -311,72 +311,91 @@ func (p *PatchPanel) EnablePolicy(srcAdapter, rcvAdapter Adapter, srcIfc Interfa
 	return
 }
 
-func ensureIngressFd(link netlink.Link, fd int) error {
-	ingress := &netlink.Ingress{
+func ensureQdisc(link netlink.Link) (netlink.Qdisc, error) {
+	qHandle := netlink.MakeHandle(0xffff, 0)
+	qds, err := netlink.QdiscList(link)
+	if err != nil {
+		return nil, err
+	}
+	for _, q := range qds {
+		if q.Attrs().Handle == qHandle {
+			Debug.Printf("Found existing ingress qdisc %x\n", q.Attrs().Handle)
+			return q, nil
+		}
+	}
+	qdisc := &netlink.GenericQdisc{
 		QdiscAttrs: netlink.QdiscAttrs{
 			LinkIndex: link.Attrs().Index,
-			Handle:    netlink.MakeHandle(0xffff, 0),
-			Parent:    netlink.HANDLE_INGRESS,
+			Handle:    qHandle,
+			Parent:    netlink.HANDLE_CLSACT,
 		},
+		QdiscType: "clsact",
 	}
-	qds, err := netlink.QdiscList(link)
+	if err := netlink.QdiscAdd(qdisc); err != nil {
+		return nil, fmt.Errorf("failed ensuring qdisc: %v", err)
+	}
+	return qdisc, nil
+}
+
+func ensureIngressFd(link netlink.Link, fd int) error {
+	_, err := ensureQdisc(link)
 	if err != nil {
 		return err
 	}
-	var ingressFound bool
-	for _, q := range qds {
-		if i, ok := q.(*netlink.Ingress); ok {
-			ingress = i
-			ingressFound = true
-			Debug.Printf("Found existing ingress qdisc %x\n", ingress.QdiscAttrs.Handle)
-			break
+	fHandle := netlink.MakeHandle(0, 1)
+	filter := &netlink.BpfFilter{
+		FilterAttrs: netlink.FilterAttrs{
+			LinkIndex: link.Attrs().Index,
+			Parent:    netlink.HANDLE_MIN_INGRESS,
+			Handle:    fHandle,
+			Priority:  1,
+			Protocol:  syscall.ETH_P_ALL,
+		},
+		Fd:           fd,
+		DirectAction: true,
+	}
+	filters, err := netlink.FilterList(link, netlink.HANDLE_MIN_INGRESS)
+	if err != nil {
+		return fmt.Errorf("failed fetching ingress filter list: %s", err)
+	}
+	for _, f := range filters {
+		if f.Attrs().Handle == fHandle {
+			return nil
 		}
 	}
-	if !ingressFound {
-		if err := netlink.QdiscAdd(ingress); err != nil {
-			return fmt.Errorf("failed setting ingress qdisc: %v", err)
-		}
-		u32 := &netlink.U32{
-			FilterAttrs: netlink.FilterAttrs{
-				LinkIndex: link.Attrs().Index,
-				Parent:    ingress.QdiscAttrs.Handle,
-				Priority:  1,
-				Protocol:  syscall.ETH_P_ALL,
-			},
-			ClassId: netlink.MakeHandle(1, 1),
-			BpfFd:   fd,
-		}
-		if err := netlink.FilterAdd(u32); err != nil {
-			return fmt.Errorf("failed adding ingress filter: %v", err)
-		}
+	if err := netlink.FilterAdd(filter); err != nil {
+		return fmt.Errorf("failed adding ingress filter: %s", err)
 	}
 	return nil
 }
 
-func ensureFqCodelFd(link netlink.Link, fd int) error {
-	fq := &netlink.GenericQdisc{
-		QdiscAttrs: netlink.QdiscAttrs{
-			LinkIndex: link.Attrs().Index,
-			Handle:    netlink.MakeHandle(1, 0),
-			Parent:    netlink.HANDLE_ROOT,
-		},
-		QdiscType: "fq_codel",
+func ensureEgressFd(link netlink.Link, fd int) error {
+	_, err := ensureQdisc(link)
+	if err != nil {
+		return err
 	}
-	if err := netlink.QdiscAdd(fq); err != nil {
-		return fmt.Errorf("failed setting egress qdisc: %v", err)
-	}
-	u32 := &netlink.U32{
+	fHandle := netlink.MakeHandle(0, 2)
+	filter := &netlink.BpfFilter{
 		FilterAttrs: netlink.FilterAttrs{
 			LinkIndex: link.Attrs().Index,
-			Parent:    fq.QdiscAttrs.Handle,
+			Parent:    netlink.HANDLE_MIN_EGRESS,
+			Handle:    fHandle,
+			Priority:  1,
 			Protocol:  syscall.ETH_P_ALL,
-			//Handle:    10,
-			//Priority:  10,
 		},
-		ClassId: netlink.MakeHandle(1, 2),
-		BpfFd:   fd,
+		Fd:           fd,
+		DirectAction: true,
 	}
-	if err := netlink.FilterAdd(u32); err != nil {
+	filters, err := netlink.FilterList(link, netlink.HANDLE_MIN_EGRESS)
+	if err != nil {
+		return fmt.Errorf("failed fetching egress filter list: %s", err)
+	}
+	for _, f := range filters {
+		if f.Attrs().Handle == fHandle {
+			return nil
+		}
+	}
+	if err := netlink.FilterAdd(filter); err != nil {
 		return fmt.Errorf("failed adding egress filter: %v", err)
 	}
 	return nil

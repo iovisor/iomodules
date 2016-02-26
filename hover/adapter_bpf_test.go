@@ -329,19 +329,19 @@ func testOne(t *testing.T, test testCase, rsp interface{}) {
 		resp, err = client.Get(test.url)
 	}
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	if resp.StatusCode != test.code {
-		t.Errorf("Expected %d, got %d", test.code, resp.StatusCode)
+		t.Fatalf("Expected %d, got %d", test.code, resp.StatusCode)
 	}
 	if rsp != nil {
 		if err := json.Unmarshal(body, rsp); err != nil {
-			t.Error(err)
+			t.Fatal(err)
 		}
 	}
 }

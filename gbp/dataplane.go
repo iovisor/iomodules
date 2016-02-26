@@ -290,7 +290,7 @@ func (d *Dataplane) ParsePolicy(policy *Policy) (err error) {
 					if m.Direction == 2 {
 						id1, id2 = providerId, consumerId
 					}
-					k := fmt.Sprintf("{ %d %d %d %d %d %d }",
+					k := fmt.Sprintf("{ %d %d %d %d %d %d [0 0]}",
 						id1, id2, m.SourcePort, m.DestPort, m.Proto, 1 /*m.Direction*/)
 					v := "2" // drop
 					if rule.IsAllow() {

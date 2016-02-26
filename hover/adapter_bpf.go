@@ -79,7 +79,7 @@ func (bpf *BpfModule) Close() {
 }
 
 func (bpf *BpfModule) initRxHandler() (int, error) {
-	fd, err := bpf.Load("handle_rx_wrapper", C.BPF_PROG_TYPE_SCHED_ACT)
+	fd, err := bpf.Load("handle_rx_wrapper", C.BPF_PROG_TYPE_SCHED_CLS)
 	if err != nil {
 		return -1, err
 	}
@@ -87,7 +87,7 @@ func (bpf *BpfModule) initRxHandler() (int, error) {
 }
 
 func (bpf *BpfModule) initTxHandler() (int, error) {
-	fd, err := bpf.Load("handle_tx_wrapper", C.BPF_PROG_TYPE_SCHED_ACT)
+	fd, err := bpf.Load("handle_tx_wrapper", C.BPF_PROG_TYPE_SCHED_CLS)
 	if err != nil {
 		return -1, err
 	}
@@ -439,7 +439,7 @@ func (table *BpfTable) keyToBytes(keyX interface{}) ([]byte, error) {
 	defer C.free(unsafe.Pointer(keyCS))
 	r := C.bpf_table_key_sscanf(mod, table.id, keyCS, keyP)
 	if r != 0 {
-		return nil, fmt.Errorf("error scanning key from string")
+		return nil, fmt.Errorf("error scanning key (%v) from string", keyX)
 	}
 	return key, nil
 }
@@ -457,7 +457,7 @@ func (table *BpfTable) leafToBytes(leafX interface{}) ([]byte, error) {
 	defer C.free(unsafe.Pointer(leafCS))
 	r := C.bpf_table_leaf_sscanf(mod, table.id, leafCS, leafP)
 	if r != 0 {
-		return nil, fmt.Errorf("error scanning leaf from string")
+		return nil, fmt.Errorf("error scanning leaf (%v) from string")
 	}
 	return leaf, nil
 }
@@ -503,9 +503,9 @@ func (table *BpfTable) Set(keyX, leafX interface{}) error {
 	}
 	keyP := unsafe.Pointer(&key[0])
 	leafP := unsafe.Pointer(&leaf[0])
-	r := C.bpf_update_elem(fd, keyP, leafP, 0)
+	r, err := C.bpf_update_elem(fd, keyP, leafP, 0)
 	if r != 0 {
-		return fmt.Errorf("BpfTable.Set: unable to update element")
+		return fmt.Errorf("BpfTable.Set: unable to update element (%v=%v): %s", keyX, leafX, err)
 	}
 	return nil
 }
@@ -516,9 +516,9 @@ func (table *BpfTable) Delete(keyX interface{}) error {
 		return err
 	}
 	keyP := unsafe.Pointer(&key[0])
-	r := C.bpf_delete_elem(fd, keyP)
+	r, err := C.bpf_delete_elem(fd, keyP)
 	if r != 0 {
-		return fmt.Errorf("BpfTable.Delete: unable to delete element")
+		return fmt.Errorf("BpfTable.Delete: unable to delete element (%v): %s", keyX, err)
 	}
 	return nil
 }
