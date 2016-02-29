@@ -24,32 +24,6 @@ import (
 )
 
 var filterImplC string = `
-
-struct ip6_t {
-	unsigned int        ver:4;
-	unsigned int        priority:8;
-	unsigned int        flow_label:20;
-	unsigned short      payload_len;
-	unsigned char       next_header;
-	unsigned char       hop_limit;
-	unsigned long long  src_hi;
-	unsigned long long  src_lo;
-	unsigned long long  dst_hi;
-	unsigned long long  dst_lo;
-} BPF_PACKET_HEADER;
-
-struct ip6_opt_t {
-	unsigned char  next_header;
-	unsigned char  ext_len;
-	unsigned char  pad[6];
-} BPF_PACKET_HEADER;
-
-struct icmp6_t {
-	unsigned char   type;
-	unsigned char   code;
-	unsigned short  checksum;
-} BPF_PACKET_HEADER;
-
 struct Counter {
 	u64 rx_pkts;
 	u64 tx_pkts;
