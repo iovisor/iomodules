@@ -303,7 +303,7 @@ func TestModulePolicy(t *testing.T) {
 		method: "GET",
 		code:   http.StatusOK,
 	}, &c1)
-	if c1.Key.(string) != "0x0" || c1.Value.(string) == "0x0" {
+	if c1.Key != "0x0" || c1.Value == "0x0" {
 		t.Fatalf("Expected counter 1 != 0, got %s", c1.Value)
 	}
 	testOne(t, testCase{
@@ -312,7 +312,7 @@ func TestModulePolicy(t *testing.T) {
 		method: "GET",
 		code:   http.StatusOK,
 	}, &c2)
-	if c2.Key.(string) != "0x1" || c2.Value.(string) == "0x0" {
+	if c2.Key != "0x1" || c2.Value == "0x0" {
 		t.Fatalf("Expected counter 1 != 0, got %s", c2.Value)
 	}
 }

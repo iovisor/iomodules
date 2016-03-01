@@ -82,7 +82,7 @@ CREATE TABLE links (
 		config: make(map[string]interface{}),
 	}
 	code := strings.Join([]string{iomoduleH, patchC}, "\n")
-	pp.adapter.bpf = NewBpfModule(code, []string{})
+	pp.adapter.bpf = NewBpfModule(code, []string{"-w"})
 	if pp.adapter.bpf == nil {
 		err = fmt.Errorf("PatchPanel: unable to load core module")
 		return
@@ -265,7 +265,7 @@ func (p *PatchPanel) EnablePolicy(srcAdapter, rcvAdapter Adapter, srcIfc Interfa
 	v := fmt.Sprintf("{%d %d 0 0}", rcvAdapter.Handle(HandlerRx), rcvIfc.ID())
 	if o, ok := p.links.Get(k); ok {
 		k2 := fmt.Sprintf("{%d %d 0 [0 0 0]}", rcvAdapter.Handle(HandlerRx), rcvIfc.ID())
-		v2 := o.(AdapterTablePair).Value.(string)
+		v2 := o.(AdapterTablePair).Value
 		Debug.Printf("existing link %s = %s\n", k, v2)
 		if err = p.links.Set(k2, v2); err != nil {
 			return
@@ -281,7 +281,7 @@ func (p *PatchPanel) EnablePolicy(srcAdapter, rcvAdapter Adapter, srcIfc Interfa
 	Debug.Printf("tx link %s\n", v)
 	if o, ok := p.links.Get(k); ok {
 		k2 := fmt.Sprintf("{%d %d 1 [0 0 0]}", rcvAdapter.Handle(HandlerTx), rcvIfc.ID())
-		v2 := o.(AdapterTablePair).Value.(string)
+		v2 := o.(AdapterTablePair).Value
 		Debug.Printf("existing link %s = %s\n", k, v2)
 		if err = p.links.Set(k2, v2); err != nil {
 			return

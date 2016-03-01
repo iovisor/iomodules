@@ -138,13 +138,13 @@ func (table *HostTable) Name() string {
 func (table *HostTable) Config() map[string]interface{} {
 	return map[string]interface{}{}
 }
-func (table *HostTable) Get(key interface{}) (interface{}, bool) {
+func (table *HostTable) Get(key string) (interface{}, bool) {
 	return nil, false
 }
-func (table *HostTable) Set(key, val interface{}) error {
+func (table *HostTable) Set(key, val string) error {
 	return fmt.Errorf("HostAdapter: Set operation not supported")
 }
-func (table *HostTable) Delete(key interface{}) error {
+func (table *HostTable) Delete(key string) error {
 	return fmt.Errorf("HostAdapter: Delete operation not supported")
 }
 func (table *HostTable) Iter() <-chan AdapterTablePair {

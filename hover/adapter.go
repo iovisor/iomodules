@@ -71,17 +71,17 @@ type Adapter interface {
 }
 
 type AdapterTablePair struct {
-	Key   interface{} `json:"key"`
-	Value interface{} `json:"value"`
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 type AdapterTable interface {
 	ID() string
 	Name() string
 	Config() map[string]interface{}
-	Get(key interface{}) (interface{}, bool)
-	Set(key, val interface{}) error
-	Delete(key interface{}) error
+	Get(key string) (interface{}, bool)
+	Set(key, val string) error
+	Delete(key string) error
 	Iter() <-chan AdapterTablePair
 }
 

@@ -426,31 +426,23 @@ func (table *BpfTable) leafToString(leaf []byte) string {
 	return ""
 }
 
-func (table *BpfTable) keyToBytes(keyX interface{}) ([]byte, error) {
+func (table *BpfTable) keyToBytes(keyStr string) ([]byte, error) {
 	mod := table.module.p
 	key_size := C.bpf_table_key_size_id(mod, table.id)
-	keyStr, ok := keyX.(string)
-	if !ok {
-		return nil, fmt.Errorf("table key must be a string")
-	}
 	key := make([]byte, key_size)
 	keyP := unsafe.Pointer(&key[0])
 	keyCS := C.CString(keyStr)
 	defer C.free(unsafe.Pointer(keyCS))
 	r := C.bpf_table_key_sscanf(mod, table.id, keyCS, keyP)
 	if r != 0 {
-		return nil, fmt.Errorf("error scanning key (%v) from string", keyX)
+		return nil, fmt.Errorf("error scanning key (%v) from string", keyStr)
 	}
 	return key, nil
 }
 
-func (table *BpfTable) leafToBytes(leafX interface{}) ([]byte, error) {
+func (table *BpfTable) leafToBytes(leafStr string) ([]byte, error) {
 	mod := table.module.p
 	leaf_size := C.bpf_table_leaf_size_id(mod, table.id)
-	leafStr, ok := leafX.(string)
-	if !ok {
-		return nil, fmt.Errorf("table leaf must be a string")
-	}
 	leaf := make([]byte, leaf_size)
 	leafP := unsafe.Pointer(&leaf[0])
 	leafCS := C.CString(leafStr)
@@ -463,11 +455,11 @@ func (table *BpfTable) leafToBytes(leafX interface{}) ([]byte, error) {
 }
 
 // Get takes a key and returns the value or nil, and an 'ok' style indicator
-func (table *BpfTable) Get(keyX interface{}) (interface{}, bool) {
+func (table *BpfTable) Get(keyStr string) (interface{}, bool) {
 	mod := table.module.p
 	fd := C.bpf_table_fd_id(mod, table.id)
 	leaf_size := C.bpf_table_leaf_size_id(mod, table.id)
-	key, err := table.keyToBytes(keyX)
+	key, err := table.keyToBytes(keyStr)
 	if err != nil {
 		return nil, false
 	}
@@ -485,19 +477,18 @@ func (table *BpfTable) Get(keyX interface{}) (interface{}, bool) {
 		return nil, false
 	}
 	return AdapterTablePair{
-		Key:   keyX,
+		Key:   keyStr,
 		Value: string(leafStr[:bytes.IndexByte(leafStr, 0)]),
 	}, true
-	return nil, false
 }
 
-func (table *BpfTable) Set(keyX, leafX interface{}) error {
+func (table *BpfTable) Set(keyStr, leafStr string) error {
 	fd := C.bpf_table_fd_id(table.module.p, table.id)
-	key, err := table.keyToBytes(keyX)
+	key, err := table.keyToBytes(keyStr)
 	if err != nil {
 		return err
 	}
-	leaf, err := table.leafToBytes(leafX)
+	leaf, err := table.leafToBytes(leafStr)
 	if err != nil {
 		return err
 	}
@@ -505,20 +496,20 @@ func (table *BpfTable) Set(keyX, leafX interface{}) error {
 	leafP := unsafe.Pointer(&leaf[0])
 	r, err := C.bpf_update_elem(fd, keyP, leafP, 0)
 	if r != 0 {
-		return fmt.Errorf("BpfTable.Set: unable to update element (%v=%v): %s", keyX, leafX, err)
+		return fmt.Errorf("BpfTable.Set: unable to update element (%s=%s): %s", keyStr, leafStr, err)
 	}
 	return nil
 }
-func (table *BpfTable) Delete(keyX interface{}) error {
+func (table *BpfTable) Delete(keyStr string) error {
 	fd := C.bpf_table_fd_id(table.module.p, table.id)
-	key, err := table.keyToBytes(keyX)
+	key, err := table.keyToBytes(keyStr)
 	if err != nil {
 		return err
 	}
 	keyP := unsafe.Pointer(&key[0])
 	r, err := C.bpf_delete_elem(fd, keyP)
 	if r != 0 {
-		return fmt.Errorf("BpfTable.Delete: unable to delete element (%v): %s", keyX, err)
+		return fmt.Errorf("BpfTable.Delete: unable to delete element (%s): %s", keyStr, err)
 	}
 	return nil
 }
