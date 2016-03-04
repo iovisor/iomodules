@@ -28,12 +28,6 @@ import (
 )
 
 var filterImplC string = `
-struct icmp_t {
-	unsigned char type;
-	unsigned char code;
-	unsigned short checksum;
-} BPF_PACKET_HEADER;
-
 BPF_TABLE("hash", u32, u32, endpoints, 1024);
 
 struct match {
