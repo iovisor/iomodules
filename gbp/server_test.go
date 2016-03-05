@@ -245,7 +245,7 @@ func runTestCommand(t *testing.T, cmd string, input io.Reader) string {
 // created during the subscription window.
 func gatherLinks(ch <-chan netlink.LinkUpdate) ([]netlink.Link, error) {
 	linkSet := make(map[int32]bool)
-	timeout := time.After(500 * time.Millisecond)
+	timeout := time.After(1000 * time.Millisecond)
 	Debug.Printf("Waiting for link updates\n")
 outer:
 	for {

@@ -22,8 +22,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/jmoiron/sqlx"
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/docker/libkv"
+	"github.com/docker/libkv/store"
+	"github.com/docker/libkv/store/boltdb"
 	"github.com/vishvananda/netlink"
 )
 
@@ -47,7 +48,7 @@ type PatchPanel struct {
 	modules       AdapterTable
 	links         AdapterTable
 	moduleHandles *HandlePool
-	db            *sqlx.DB
+	kv            store.Store
 }
 
 func NewPatchPanel() (pp *PatchPanel, err error) {
@@ -57,19 +58,19 @@ func NewPatchPanel() (pp *PatchPanel, err error) {
 		return
 	}
 
+	boltdb.Register()
+	kv, err := libkv.NewStore(store.BOLTDB, []string{"/tmp/bolt.db"}, &store.Config{Bucket: "patch"})
+	if err != nil {
+		Warn.Print(err)
+		return
+	}
 	pp = &PatchPanel{
 		tailcallFd:    -1,
 		netdevRxFd:    -1,
 		netdevTxFd:    -1,
 		moduleHandles: NewHandlePool(1024),
-		db:            sqlx.MustConnect("sqlite3", ":memory:"),
+		kv:            kv,
 	}
-	pp.db.MustExec(`
-CREATE TABLE links (
-	id CHAR(36)  PRIMARY KEY NOT NULL,
-	src CHAR(36) NOT NULL,
-	dst CHAR(36) NOT NULL
-);`)
 	defer func() {
 		if err != nil {
 			pp.Close()

@@ -550,7 +550,10 @@ func NewServer() *HoverServer {
 	rtr := mux.NewRouter()
 
 	s := &HoverServer{handler: rtr}
-	s.Init()
+	err := s.Init()
+	if err != nil {
+		return nil
+	}
 
 	// modules
 	// modules/{moduleId}/interfaces

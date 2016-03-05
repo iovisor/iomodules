@@ -241,6 +241,9 @@ func TestModuleRedirect(t *testing.T) {
 
 func TestModulePolicy(t *testing.T) {
 	s := NewServer()
+	if s == nil {
+		t.Fatalf("Could not start Hover")
+	}
 	defer s.Close()
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
@@ -276,13 +279,14 @@ func TestModulePolicy(t *testing.T) {
 		body: wrapCode(policyC, []string{"handle_rx", "handle_tx"}),
 		code: http.StatusOK,
 	}, &t1)
+	var pol policyEntry
 	testOne(t, testCase{
 		url: srv.URL + "/modules/host/interfaces/" + l1.Name + "/policies/",
 		body: wrapObject(map[string]interface{}{
 			"module": t1.Id,
 		}),
 		code: http.StatusOK,
-	}, nil)
+	}, &pol)
 
 	var wg sync.WaitGroup
 	go RunInNs(testns1, func() error {
@@ -315,6 +319,13 @@ func TestModulePolicy(t *testing.T) {
 	if c2.Key != "0x1" || c2.Value == "0x0" {
 		t.Fatalf("Expected counter 1 != 0, got %s", c2.Value)
 	}
+
+	testOne(t, testCase{
+		url:    srv.URL + "/modules/host/interfaces/" + l1.Name + "/policies/" + pol.Id,
+		body:   nil,
+		method: "DELETE",
+		code:   http.StatusOK,
+	}, nil)
 }
 
 func testOne(t *testing.T, test testCase, rsp interface{}) {
@@ -327,6 +338,12 @@ func testOne(t *testing.T, test testCase, rsp interface{}) {
 		resp, err = client.Post(test.url, "application/json", test.body)
 	case "GET":
 		resp, err = client.Get(test.url)
+	default:
+		req, err := http.NewRequest(test.method, test.url, test.body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err = client.Do(req)
 	}
 	if err != nil {
 		t.Fatal(err)

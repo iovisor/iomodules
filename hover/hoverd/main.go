@@ -43,9 +43,15 @@ func main() {
 	s := hover.NewServer()
 	go func() {
 		<-c
-		s.Close()
+		if s != nil {
+			s.Close()
+		}
 		os.Exit(1)
 	}()
+	if s == nil {
+		hover.Warn.Println("Failed to start Hover Server")
+		os.Exit(1)
+	}
 	hover.Info.Printf("Hover Server listening on %s\n", listenSocket)
 	http.ListenAndServe(listenSocket, s.Handler())
 }
