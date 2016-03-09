@@ -336,6 +336,9 @@ func (ifc *BpfInterface) ID() int {
 	return ifc.id
 }
 func (ifc *BpfInterface) Name() string {
+	if ifc.name == "" {
+		return fmt.Sprintf("%d", ifc.id)
+	}
 	return ifc.name
 }
 

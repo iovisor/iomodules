@@ -24,6 +24,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -114,6 +115,7 @@ func wrapObject(body interface{}) io.Reader {
 }
 
 func TestModuleCreate(t *testing.T) {
+	os.Remove("/tmp/hover.db")
 	s := NewServer()
 	defer s.Close()
 	srv := httptest.NewServer(s.Handler())
@@ -142,6 +144,7 @@ func TestModuleCreate(t *testing.T) {
 }
 
 func TestModuleConnect(t *testing.T) {
+	os.Remove("/tmp/hover.db")
 	s := NewServer()
 	defer s.Close()
 	srv := httptest.NewServer(s.Handler())
@@ -169,6 +172,7 @@ func TestModuleConnect(t *testing.T) {
 }
 
 func TestModuleRedirect(t *testing.T) {
+	os.Remove("/tmp/hover.db")
 	s := NewServer()
 	defer s.Close()
 	srv := httptest.NewServer(s.Handler())
@@ -240,6 +244,7 @@ func TestModuleRedirect(t *testing.T) {
 }
 
 func TestModulePolicy(t *testing.T) {
+	os.Remove("/tmp/hover.db")
 	s := NewServer()
 	if s == nil {
 		t.Fatalf("Could not start Hover")
@@ -318,6 +323,20 @@ func TestModulePolicy(t *testing.T) {
 	}, &c2)
 	if c2.Key != "0x1" || c2.Value == "0x0" {
 		t.Fatalf("Expected counter 1 != 0, got %s", c2.Value)
+	}
+
+	var policies []*policyEntry
+	testOne(t, testCase{
+		url:    srv.URL + "/modules/host/interfaces/" + l1.Name + "/policies/",
+		body:   nil,
+		method: "GET",
+		code:   http.StatusOK,
+	}, &policies)
+	if len(policies) != 1 {
+		t.Fatalf("Expected len(policies) %d != 1", len(policies))
+	}
+	for _, p := range policies {
+		Debug.Printf("id=%s, module=%s\n", p.Id, p.Module)
 	}
 
 	testOne(t, testCase{

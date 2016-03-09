@@ -25,6 +25,8 @@ import (
 	"github.com/docker/libkv"
 	"github.com/docker/libkv/store"
 	"github.com/docker/libkv/store/boltdb"
+	"github.com/gonum/graph"
+	simplegraph "github.com/gonum/graph/simple"
 	"github.com/vishvananda/netlink"
 )
 
@@ -49,6 +51,7 @@ type PatchPanel struct {
 	links         AdapterTable
 	moduleHandles *HandlePool
 	kv            store.Store
+	graph         graph.Graph
 }
 
 func NewPatchPanel() (pp *PatchPanel, err error) {
@@ -59,7 +62,7 @@ func NewPatchPanel() (pp *PatchPanel, err error) {
 	}
 
 	boltdb.Register()
-	kv, err := libkv.NewStore(store.BOLTDB, []string{"/tmp/bolt.db"}, &store.Config{Bucket: "patch"})
+	kv, err := libkv.NewStore(store.BOLTDB, []string{"/tmp/hover.db"}, &store.Config{Bucket: "patch"})
 	if err != nil {
 		Warn.Print(err)
 		return
@@ -70,6 +73,7 @@ func NewPatchPanel() (pp *PatchPanel, err error) {
 		netdevTxFd:    -1,
 		moduleHandles: NewHandlePool(1024),
 		kv:            kv,
+		graph:         simplegraph.NewUndirectedGraph(0.0, 0.0),
 	}
 	defer func() {
 		if err != nil {
@@ -306,9 +310,40 @@ func (p *PatchPanel) EnablePolicy(srcAdapter, rcvAdapter Adapter, srcIfc Interfa
 		}
 	}
 
-	// TODO: insert into a db
+	{
+		path := fmt.Sprintf("modules/%s/subscribed_policies/%s", rcvAdapter.ID(), newId)
+		if err = p.kv.Put(path, []byte(newId), nil); err != nil {
+			return
+		}
+	}
+
+	{
+		path := fmt.Sprintf("modules/%s/interfaces/%s/policies/%s", srcAdapter.ID(), srcIfc.Name(), newId)
+		val := fmt.Sprintf("%s\n%s\n%s\n0", newId, rcvAdapter.ID(), rcvIfc.Name())
+		if err = p.kv.Put(path, []byte(val), nil); err != nil {
+			return
+		}
+	}
 
 	id = newId
+	return
+}
+
+func (p *PatchPanel) GetPolicies(srcAdapter Adapter, srcIfc Interface) (entries []*policyEntry, err error) {
+	entries = []*policyEntry{}
+	path := fmt.Sprintf("modules/%s/interfaces/%s/policies/", srcAdapter.ID(), srcIfc.Name())
+	kvs, err := p.kv.List(path)
+	if err != nil {
+		return
+	}
+	for _, kv := range kvs {
+		vals := strings.Split(string(kv.Value), "\n")
+		if len(vals) != 4 {
+			err = fmt.Errorf("Unable to parse Value in policies entry")
+			return
+		}
+		entries = append(entries, &policyEntry{Id: vals[0], Module: vals[1]})
+	}
 	return
 }
 

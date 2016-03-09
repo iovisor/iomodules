@@ -20,6 +20,7 @@ type routeResponse struct {
 type HoverServer struct {
 	handler        http.Handler
 	adapterEntries AdapterEntries
+	graph          Graph
 }
 
 type handlerFunc func(r *http.Request) routeResponse
@@ -487,7 +488,18 @@ type policyEntry struct {
 }
 
 func (s *HoverServer) handleModuleInterfacePolicyList(r *http.Request) routeResponse {
-	entries := []*policyEntry{}
+	adapterA, ok := s.adapterEntries.m[getRequestVar(r, "moduleId")]
+	if !ok {
+		return notFound()
+	}
+	ifc := adapterA.InterfaceByName(getRequestVar(r, "interfaceId"))
+	if ifc == nil {
+		return notFound()
+	}
+	entries, err := s.adapterEntries.patchPanel.GetPolicies(adapterA, ifc)
+	if err != nil {
+		panic(err)
+	}
 	return routeResponse{body: entries}
 }
 
@@ -508,8 +520,7 @@ func (s *HoverServer) handleModuleInterfacePolicyPost(r *http.Request) routeResp
 	if !ok {
 		panic(fmt.Errorf("Reference to module %s not found", req.Module))
 	}
-	ifcId := getRequestVar(r, "interfaceId")
-	ifc := adapterA.InterfaceByName(ifcId)
+	ifc := adapterA.InterfaceByName(getRequestVar(r, "interfaceId"))
 	if ifc == nil {
 		return notFound()
 	}
@@ -549,7 +560,10 @@ func NewServer() *HoverServer {
 	Info.Println("IOVisor HTTP Daemon starting...")
 	rtr := mux.NewRouter()
 
-	s := &HoverServer{handler: rtr}
+	s := &HoverServer{
+		handler: rtr,
+		graph:   NewGraph(),
+	}
 	err := s.Init()
 	if err != nil {
 		return nil
