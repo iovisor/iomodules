@@ -272,6 +272,11 @@ func TestModuleRedirect(t *testing.T) {
 	wg.Wait()
 }
 
+type policyEntry struct {
+	Id     string `json:"id"`
+	Module string `json:"module"`
+}
+
 func TestModulePolicy(t *testing.T) {
 	os.Remove("/tmp/hover.db")
 	s := NewServer()

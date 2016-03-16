@@ -504,60 +504,6 @@ func (s *HoverServer) handleModuleInterfaceGet(r *http.Request) routeResponse {
 	}}
 }
 
-type policyEntry struct {
-	Id     string `json:"id"`
-	Module string `json:"module"`
-}
-
-func (s *HoverServer) handleModuleInterfacePolicyList(r *http.Request) routeResponse {
-	adapterA, ok := s.adapterEntries.m[getRequestVar(r, "moduleId")]
-	if !ok {
-		return notFound()
-	}
-	ifc := adapterA.InterfaceByName(getRequestVar(r, "interfaceId"))
-	if ifc == nil {
-		return notFound()
-	}
-	entries, err := s.patchPanel.GetPolicies(adapterA, ifc)
-	if err != nil {
-		panic(err)
-	}
-	return routeResponse{body: entries}
-}
-
-type createPolicyRequest struct {
-	Module string `json:"module"`
-}
-
-func (s *HoverServer) handleModuleInterfacePolicyPost(r *http.Request) routeResponse {
-	var req createPolicyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		panic(err)
-	}
-	adapterA, ok := s.adapterEntries.m[getRequestVar(r, "moduleId")]
-	if !ok {
-		return notFound()
-	}
-	_, ok = s.adapterEntries.m[req.Module]
-	if !ok {
-		panic(fmt.Errorf("Reference to module %q not found", req.Module))
-	}
-	ifc := adapterA.InterfaceByName(getRequestVar(r, "interfaceId"))
-	if ifc == nil {
-		return notFound()
-	}
-	//id, err := s.patchPanel.EnablePolicy(adapterA, adapterB, ifc)
-	//if err != nil {
-	//	panic(err)
-	//}
-	return routeResponse{
-		body: &policyEntry{
-			Id:     "", //id,
-			Module: req.Module,
-		},
-	}
-}
-
 func (s *HoverServer) handleExternalInterfaceList(r *http.Request) routeResponse {
 	var interfaces []interfaceEntry
 	for _, ifc := range s.hmon.Interfaces() {
@@ -611,10 +557,6 @@ func NewServer() *HoverServer {
 	ifc := mod.PathPrefix("/{moduleId}/interfaces").Subrouter()
 	ifc.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleModuleInterfaceList))
 	ifc.Methods("GET").Path("/{interfaceId}").HandlerFunc(makeHandler(s.handleModuleInterfaceGet))
-
-	ftr := ifc.PathPrefix("/{interfaceId}/policies").Subrouter()
-	ftr.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleModuleInterfacePolicyList))
-	ftr.Methods("POST").Path("/").HandlerFunc(makeHandler(s.handleModuleInterfacePolicyPost))
 
 	tbl := mod.PathPrefix("/{moduleId}/tables").Subrouter()
 	tbl.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleModuleTableList))

@@ -98,24 +98,6 @@ func (p *PatchPanel) FD() int {
 	return p.chainFd
 }
 
-func (p *PatchPanel) GetPolicies(srcAdapter Adapter, srcIfc Interface) (entries []*policyEntry, err error) {
-	entries = []*policyEntry{}
-	path := fmt.Sprintf("modules/%s/interfaces/%s/policies/", srcAdapter.ID(), srcIfc.Name())
-	kvs, err := p.kv.List(path)
-	if err != nil {
-		return
-	}
-	for _, kv := range kvs {
-		vals := strings.Split(string(kv.Value), "\n")
-		if len(vals) != 4 {
-			err = fmt.Errorf("Unable to parse Value in policies entry")
-			return
-		}
-		entries = append(entries, &policyEntry{Id: vals[0], Module: vals[1]})
-	}
-	return
-}
-
 func ensureQdisc(link netlink.Link) (netlink.Qdisc, error) {
 	qHandle := netlink.MakeHandle(0xffff, 0)
 	qds, err := netlink.QdiscList(link)

@@ -70,7 +70,7 @@ func (ifc *ExtInterface) FD() int {
 }
 
 func (ifc *ExtInterface) ID() int                    { return ifc.id }
-func (ifc *ExtInterface) DOTID() string              { return fmt.Sprintf("%q", ifc.link.Attrs().Name) }
+func (ifc *ExtInterface) DOTID() string              { return fmt.Sprintf("%q", ifc.ShortPath()) }
 func (ifc *ExtInterface) Link() netlink.Link         { return ifc.link }
 func (ifc *ExtInterface) Path() string               { return "external_interfaces/" + ifc.link.Attrs().Name }
 func (ifc *ExtInterface) ShortPath() string          { return "e/" + ifc.link.Attrs().Name }
