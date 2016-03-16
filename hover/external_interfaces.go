@@ -115,7 +115,8 @@ type HostMonitor struct {
 	updates chan netlink.LinkUpdate
 
 	// close(nlDone) to terminate Subscribe loop
-	done chan struct{}
+	done  chan struct{}
+	flush chan struct{}
 
 	// nodes tracks netlink ifindex to graph Node mapping
 	nodes map[int32]*ExtInterface
@@ -128,6 +129,7 @@ func NewHostMonitor(g Graph) (res *HostMonitor, err error) {
 	hmon := &HostMonitor{
 		updates: make(chan netlink.LinkUpdate),
 		done:    make(chan struct{}),
+		flush:   make(chan struct{}),
 		nodes:   make(map[int32]*ExtInterface),
 		g:       g,
 	}
@@ -158,24 +160,34 @@ func (h *HostMonitor) Close() {
 }
 
 func (h *HostMonitor) ParseLinkUpdates() {
-	for update := range h.updates {
-		h.mtx.Lock()
-		switch update.Header.Type {
-		case syscall.RTM_NEWLINK:
-			if _, ok := h.nodes[update.Index]; !ok {
-				h.nodes[update.Index] = NewExtInterface(update.Link)
+	for {
+		select {
+		case update, ok := <-h.updates:
+			if !ok {
+				// channel closed
+				return
 			}
-		case syscall.RTM_DELLINK:
-			if node, ok := h.nodes[update.Index]; ok {
-				_ = node
-				delete(h.nodes, update.Index)
+			h.mtx.Lock()
+			switch update.Header.Type {
+			case syscall.RTM_NEWLINK:
+				if _, ok := h.nodes[update.Index]; !ok {
+					h.nodes[update.Index] = NewExtInterface(update.Link)
+				}
+			case syscall.RTM_DELLINK:
+				if node, ok := h.nodes[update.Index]; ok {
+					_ = node
+					delete(h.nodes, update.Index)
+				}
 			}
+			h.mtx.Unlock()
+		case _ = <-h.flush:
+			// when h.nodes is queried, ensures that all pending updates have been processed
 		}
-		h.mtx.Unlock()
 	}
 }
 
 func (h *HostMonitor) Interfaces() (nodes []InterfaceNode) {
+	h.flush <- struct{}{}
 	h.mtx.RLock()
 	defer h.mtx.RUnlock()
 	for _, node := range h.nodes {
@@ -184,6 +196,9 @@ func (h *HostMonitor) Interfaces() (nodes []InterfaceNode) {
 	return
 }
 func (h *HostMonitor) InterfaceByName(name string) (node InterfaceNode, err error) {
+	h.flush <- struct{}{}
+	h.mtx.RLock()
+	defer h.mtx.RUnlock()
 	link, err := netlink.LinkByName(name)
 	if err != nil {
 		return
@@ -197,6 +212,7 @@ func (h *HostMonitor) InterfaceByName(name string) (node InterfaceNode, err erro
 }
 
 func (h *HostMonitor) EnsureInterfaces(g Graph, pp *PatchPanel) {
+	h.flush <- struct{}{}
 	h.mtx.Lock()
 	defer h.mtx.Unlock()
 	for ifindex, node := range h.nodes {
