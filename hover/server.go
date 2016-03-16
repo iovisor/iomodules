@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"runtime"
 	"strings"
-	"sync"
 
 	"github.com/gonum/graph"
 	"github.com/gonum/graph/traverse"
@@ -126,43 +125,40 @@ type moduleEntry struct {
 	Config      map[string]interface{} `json:"config"`
 }
 
-type AdapterEntries struct {
-	mtx sync.RWMutex
-	m   map[string]Adapter
+type AdapterEntries map[string]*AdapterNode
+
+func (a AdapterEntries) Add(node *AdapterNode) {
+	a[node.adapter.UUID()] = node
 }
 
-func (a *AdapterEntries) Add(adapter Adapter) {
-	a.m[adapter.UUID()] = adapter
-}
-
-func (a *AdapterEntries) Remove(id string) {
-	if adapter, ok := a.m[id]; ok {
-		if adapter.Perm()&PermW == 0 {
+func (a AdapterEntries) Remove(id string) {
+	if node, ok := a[id]; ok {
+		if node.adapter.Perm()&PermW == 0 {
 			panic(fmt.Errorf("Cannot remove %s, permission denied", id))
 		}
-		delete(a.m, id)
+		delete(a, id)
 	}
 }
 
-func (a *AdapterEntries) GetAll() []*moduleEntry {
+func (a AdapterEntries) GetAll() []*moduleEntry {
 	result := []*moduleEntry{}
-	for _, adapter := range a.m {
+	for _, node := range a {
 		result = append(result, &moduleEntry{
-			Id:          adapter.UUID(),
-			ModuleType:  adapter.Type(),
-			DisplayName: adapter.Name(),
-			Tags:        adapter.Tags(),
-			Config:      adapter.Config(),
-			Perm:        fmt.Sprintf("0%x00", adapter.Perm()),
+			Id:          node.adapter.UUID(),
+			ModuleType:  node.adapter.Type(),
+			DisplayName: node.adapter.Name(),
+			Tags:        node.adapter.Tags(),
+			Config:      node.adapter.Config(),
+			Perm:        fmt.Sprintf("0%x00", node.adapter.Perm()),
 		})
 	}
 	return result
 }
 
-func (a *AdapterEntries) Get(id string) *moduleEntry {
+func (a AdapterEntries) Get(id string) *moduleEntry {
 	var result *moduleEntry
-	if adapter, ok := a.m[id]; ok {
-		result = adapterToModuleEntry(adapter)
+	if node, ok := a[id]; ok {
+		result = adapterToModuleEntry(node.adapter)
 	}
 	return result
 }
@@ -191,7 +187,7 @@ func getRequestVar(r *http.Request, key string) string {
 }
 
 func (s *HoverServer) Init() (err error) {
-	s.adapterEntries.m = make(map[string]Adapter)
+	s.adapterEntries = make(map[string]*AdapterNode)
 	s.patchPanel, err = NewPatchPanel()
 	if err != nil {
 		return
@@ -220,9 +216,10 @@ func (s *HoverServer) handleModulePost(r *http.Request) routeResponse {
 	if err != nil {
 		panic(err)
 	}
-	s.adapterEntries.Add(adapter)
-	adapter.(*BpfAdapter).id = s.g.NewNodeID()
-	s.g.AddNode(NewAdapterNode(adapter))
+	node := NewAdapterNode(adapter)
+	s.adapterEntries.Add(node)
+	node.SetID(s.g.NewNodeID())
+	s.g.AddNode(node)
 	entry := adapterToModuleEntry(adapter)
 	return routeResponse{body: entry}
 }
@@ -240,31 +237,31 @@ func (s *HoverServer) handleModulePut(r *http.Request) routeResponse {
 }
 func (s *HoverServer) handleModuleDelete(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	adapter, ok := s.adapterEntries.m[id]
+	node, ok := s.adapterEntries[id]
 	if !ok {
 		return notFound()
 	}
-	adapter.Close()
-	delete(s.adapterEntries.m, id)
+	node.adapter.Close()
+	delete(s.adapterEntries, id)
 	return routeResponse{}
 }
 
 func (s *HoverServer) handleModuleTableList(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	adapter, ok := s.adapterEntries.m[id]
+	node, ok := s.adapterEntries[id]
 	if !ok {
 		return notFound()
 	}
-	return routeResponse{body: adapter.Tables()}
+	return routeResponse{body: node.adapter.Tables()}
 }
 func (s *HoverServer) handleModuleTableGet(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	adapter, ok := s.adapterEntries.m[id]
+	node, ok := s.adapterEntries[id]
 	if !ok {
 		return notFound()
 	}
 	name := getRequestVar(r, "tableId")
-	tbl := adapter.Table(name)
+	tbl := node.adapter.Table(name)
 	if tbl == nil {
 		return notFound()
 	}
@@ -273,12 +270,12 @@ func (s *HoverServer) handleModuleTableGet(r *http.Request) routeResponse {
 
 func (s *HoverServer) handleModuleTableEntryList(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	adapter, ok := s.adapterEntries.m[id]
+	node, ok := s.adapterEntries[id]
 	if !ok {
 		return notFound()
 	}
 	name := getRequestVar(r, "tableId")
-	tbl := adapter.Table(name)
+	tbl := node.adapter.Table(name)
 	if tbl == nil {
 		return notFound()
 	}
@@ -303,12 +300,12 @@ func (s *HoverServer) handleModuleTableEntryPost(r *http.Request) routeResponse 
 		panic(err)
 	}
 	id := getRequestVar(r, "moduleId")
-	adapter, ok := s.adapterEntries.m[id]
+	node, ok := s.adapterEntries[id]
 	if !ok {
 		return notFound()
 	}
 	name := getRequestVar(r, "tableId")
-	tbl := adapter.Table(name)
+	tbl := node.adapter.Table(name)
 	if tbl == nil {
 		return notFound()
 	}
@@ -322,12 +319,12 @@ func (s *HoverServer) handleModuleTableEntryPost(r *http.Request) routeResponse 
 }
 func (s *HoverServer) handleModuleTableEntryGet(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	adapter, ok := s.adapterEntries.m[id]
+	node, ok := s.adapterEntries[id]
 	if !ok {
 		return notFound()
 	}
 	name := getRequestVar(r, "tableId")
-	tbl := adapter.Table(name)
+	tbl := node.adapter.Table(name)
 	if tbl == nil {
 		return notFound()
 	}
@@ -344,12 +341,12 @@ func (s *HoverServer) handleModuleTableEntryPut(r *http.Request) routeResponse {
 		panic(err)
 	}
 	id := getRequestVar(r, "moduleId")
-	adapter, ok := s.adapterEntries.m[id]
+	node, ok := s.adapterEntries[id]
 	if !ok {
 		return notFound()
 	}
 	name := getRequestVar(r, "tableId")
-	tbl := adapter.Table(name)
+	tbl := node.adapter.Table(name)
 	if tbl == nil {
 		return notFound()
 	}
@@ -364,12 +361,12 @@ func (s *HoverServer) handleModuleTableEntryPut(r *http.Request) routeResponse {
 }
 func (s *HoverServer) handleModuleTableEntryDelete(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	adapter, ok := s.adapterEntries.m[id]
+	node, ok := s.adapterEntries[id]
 	if !ok {
 		return notFound()
 	}
 	name := getRequestVar(r, "tableId")
-	tbl := adapter.Table(name)
+	tbl := node.adapter.Table(name)
 	if tbl == nil {
 		return notFound()
 	}
@@ -386,18 +383,18 @@ func (s *HoverServer) lookupNode(nodePath string) Node {
 		panic(fmt.Errorf("Malformed node path %q\n", nodePath))
 	}
 	switch parts[0] {
-	case "external_interfaces":
+	case "e", "external_interfaces":
 		node, err := s.hmon.InterfaceByName(parts[1])
 		if err != nil {
 			panic(err)
 		}
 		return node
-	case "modules":
-		adapter, ok := s.adapterEntries.m[parts[1]]
+	case "m", "modules":
+		node, ok := s.adapterEntries[parts[1]]
 		if !ok {
 			panic(fmt.Errorf("Module %q not found", parts[1]))
 		}
-		return s.g.Node(adapter.ID())
+		return s.g.Node(node.ID())
 	default:
 		panic(fmt.Errorf("Unknown node path prefix %q", parts[0]))
 	}
@@ -451,10 +448,6 @@ func (s *HoverServer) handleLinkPost(r *http.Request) routeResponse {
 	s.g.SetEdge(EdgeChain{fromNode, toNode, [3]int{toID<<16 | toNode.ID()}, fromID, toID})
 	s.g.SetEdge(EdgeChain{toNode, fromNode, [3]int{fromID<<16 | fromNode.ID()}, toID, fromID})
 	s.recomputePolicies()
-	//id, err := s.patchPanel.Connect(adapters[0], adapters[1], req.Interfaces[0], req.Interfaces[1])
-	//if err != nil {
-	//	panic(err)
-	//}
 	return routeResponse{}
 }
 
@@ -480,12 +473,12 @@ type interfaceEntry struct {
 
 func (s *HoverServer) handleModuleInterfaceList(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	adapter, ok := s.adapterEntries.m[id]
+	node, ok := s.adapterEntries[id]
 	if !ok {
 		return notFound()
 	}
 	interfaces := []*interfaceEntry{}
-	for ifc := range adapter.Interfaces() {
+	for ifc := range node.adapter.Interfaces() {
 		interfaces = append(interfaces, &interfaceEntry{
 			Id:   fmt.Sprintf("%d", ifc.ID()),
 			Name: ifc.Name(),
@@ -495,12 +488,12 @@ func (s *HoverServer) handleModuleInterfaceList(r *http.Request) routeResponse {
 }
 func (s *HoverServer) handleModuleInterfaceGet(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	adapter, ok := s.adapterEntries.m[id]
+	node, ok := s.adapterEntries[id]
 	if !ok {
 		return notFound()
 	}
 	ifcId := getRequestVar(r, "interfaceId")
-	ifc := adapter.InterfaceByName(ifcId)
+	ifc := node.adapter.InterfaceByName(ifcId)
 	if ifc == nil {
 		return notFound()
 	}

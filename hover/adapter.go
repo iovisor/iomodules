@@ -55,8 +55,6 @@ const (
 )
 
 type Adapter interface {
-	ID() int
-	SetID(id int)
 	UUID() string
 	FD() int
 	Handle(handler Handler) uint

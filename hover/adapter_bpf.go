@@ -216,7 +216,6 @@ func (bpf *BpfModule) TableIter() <-chan map[string]interface{} {
 }
 
 type BpfAdapter struct {
-	id           int
 	uuid         string
 	handles      [HandlerMax]uint
 	name         string
@@ -285,8 +284,6 @@ func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {
 }
 
 func (adapter *BpfAdapter) Config() map[string]interface{} { return adapter.config }
-func (adapter *BpfAdapter) ID() int                        { return adapter.id }
-func (adapter *BpfAdapter) SetID(id int)                   { adapter.id = id }
 func (adapter *BpfAdapter) UUID() string                   { return adapter.uuid }
 func (adapter *BpfAdapter) Handle(handler Handler) uint    { return adapter.handles[handler] }
 func (adapter *BpfAdapter) FD() int                        { return adapter.fd }

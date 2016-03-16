@@ -38,6 +38,7 @@ type Node interface {
 
 type AdapterNode struct {
 	adapter Adapter
+	id      int
 	handles *HandlePool
 }
 
@@ -48,12 +49,12 @@ func NewAdapterNode(adapter Adapter) *AdapterNode {
 	}
 }
 
-func (n *AdapterNode) ID() int           { return n.adapter.ID() }
+func (n *AdapterNode) ID() int           { return n.id }
 func (n *AdapterNode) FD() int           { return n.adapter.FD() }
 func (n *AdapterNode) DOTID() string     { return fmt.Sprintf("%q", n.ShortPath()) }
 func (n *AdapterNode) Path() string      { return "modules/" + n.adapter.UUID() }
 func (n *AdapterNode) ShortPath() string { return "m/" + n.adapter.UUID()[:8] }
-func (n *AdapterNode) SetID(id int)      { n.adapter.SetID(id) }
+func (n *AdapterNode) SetID(id int)      { n.id = id }
 
 func (n *AdapterNode) NewInterfaceID() (int, error) {
 	return n.handles.Acquire()
