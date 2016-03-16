@@ -292,62 +292,18 @@ func (adapter *BpfAdapter) Handle(handler Handler) uint    { return adapter.hand
 func (adapter *BpfAdapter) FD() int                        { return adapter.fd }
 
 func (adapter *BpfAdapter) Init() error {
-	//t := adapter.Table("modules")
-	//if t == nil {
-	//	return fmt.Errorf("Unable to load modules table")
-	//}
-	if adapter.hasRxHandler {
-		fd, err := adapter.bpf.initRxHandler()
-		if err != nil {
-			Warn.Printf("Unable to init rx handler: %s\n", err)
-			return err
-		}
-		adapter.fd = fd
-		//h, err := adapter.patchPanel.AcquireHandle()
-		//if err != nil {
-		//	return err
-		//}
-		//adapter.handles[HandlerRx] = h
-		//// set callback for recirculate to rx
-		//if err := t.Set("1", fmt.Sprintf("%d", fd)); err != nil {
-		//	return err
-		//}
-		//if err := adapter.patchPanel.Register(adapter, h, fd); err != nil {
-		//	return err
-		//}
+	fd, err := adapter.bpf.initRxHandler()
+	if err != nil {
+		Warn.Printf("Unable to init rx handler: %s\n", err)
+		return err
 	}
-	if adapter.hasTxHandler {
-		//fd, err := adapter.bpf.initTxHandler()
-		//if err != nil {
-		//	Warn.Printf("Unable to init tx handler: %s\n", err)
-		//	return err
-		//}
-		//h, err := adapter.patchPanel.AcquireHandle()
-		//if err != nil {
-		//	return err
-		//}
-		//adapter.handles[HandlerTx] = h
-		//// set callback for recirculate to tx
-		//if err = t.Set("2", fmt.Sprintf("%d", fd)); err != nil {
-		//	return err
-		//}
-		//if err = adapter.patchPanel.Register(adapter, h, fd); err != nil {
-		//	return err
-		//}
-	}
-	// set callback for returning to patch panel
-	//if err := t.Set("0", fmt.Sprintf("%d", adapter.patchPanel.FD())); err != nil {
-	//	return err
-	//}
+	adapter.fd = fd
 	return nil
 }
 
 func (adapter *BpfAdapter) Close() {
 	if adapter.bpf != nil {
 		adapter.bpf.Close()
-	}
-	if adapter.patchPanel != nil {
-		adapter.patchPanel.Unregister(adapter)
 	}
 }
 

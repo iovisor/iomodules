@@ -538,7 +538,7 @@ func (s *HoverServer) handleModuleInterfacePolicyPost(r *http.Request) routeResp
 	if !ok {
 		return notFound()
 	}
-	adapterB, ok := s.adapterEntries.m[req.Module]
+	_, ok = s.adapterEntries.m[req.Module]
 	if !ok {
 		panic(fmt.Errorf("Reference to module %q not found", req.Module))
 	}
@@ -546,13 +546,13 @@ func (s *HoverServer) handleModuleInterfacePolicyPost(r *http.Request) routeResp
 	if ifc == nil {
 		return notFound()
 	}
-	id, err := s.patchPanel.EnablePolicy(adapterA, adapterB, ifc)
-	if err != nil {
-		panic(err)
-	}
+	//id, err := s.patchPanel.EnablePolicy(adapterA, adapterB, ifc)
+	//if err != nil {
+	//	panic(err)
+	//}
 	return routeResponse{
 		body: &policyEntry{
-			Id:     id,
+			Id:     "", //id,
 			Module: req.Module,
 		},
 	}

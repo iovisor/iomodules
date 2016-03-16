@@ -104,29 +104,14 @@ int egress(struct __sk_buff *skb) {
 var patchC string = `
 #include <linux/ptrace.h>
 
-BPF_TABLE_PUBLIC("array", int, struct metadata, metadata, NUMCPUS);
+//BPF_TABLE_PUBLIC("array", int, struct metadata, metadata, NUMCPUS);
 
 BPF_TABLE_PUBLIC("prog", int, int, modules, MAX_MODULES);
-
-struct link_key {
-	int module_id;
-	int ifc;
-	unsigned char is_egress;
-	char pad[3];
-};
-
-struct link {
-	int module_id;
-	int ifc;
-	u64 packets;
-	u64 bytes;
-};
-
-BPF_TABLE("hash", struct link_key, struct link, links, 1024);
 
 // table for tracking metadata in skbs when packet is in-kernel
 BPF_TABLE("hash", uintptr_t, struct metadata, skb_metadata, MAX_METADATA);
 
+#if 0
 // Attach to kfree_skbmem kprobe to reclaim metadata.
 // This is a bit of a hack, but all of the skb fields are written over when
 // traversing some parts of the kernel, like nft or netns boundary.
@@ -192,14 +177,6 @@ static int recv_netdev(struct __sk_buff *skb, bool is_egress) {
 	return invoke_module(skb, &md, link);
 }
 
-int recv_netdev_ingress(struct __sk_buff *skb) {
-	return recv_netdev(skb, 0);
-}
-
-int recv_netdev_egress(struct __sk_buff *skb) {
-	return recv_netdev(skb, 1);
-}
-
 int recv_tailcall(struct __sk_buff *skb) {
 	int md_id = skb->cb[0];
 	struct metadata md;
@@ -229,6 +206,7 @@ int recv_tailcall(struct __sk_buff *skb) {
 	}
 	return invoke_module(skb, &md, link);
 }
+#endif
 
 int chain_pop(struct __sk_buff *skb) {
 	struct chain *cur = (struct chain *)skb->cb;
@@ -247,7 +225,7 @@ int chain_pop(struct __sk_buff *skb) {
 `
 
 var wrapperC string = `
-BPF_TABLE("extern", int, struct metadata, metadata, NUMCPUS);
+//BPF_TABLE("extern", int, struct metadata, metadata, NUMCPUS);
 BPF_TABLE("extern", int, int, modules, MAX_MODULES);
 BPF_TABLE("array", int, struct chain, forward_chain, MAX_INTERFACES);
 
@@ -264,7 +242,6 @@ static void forward(struct __sk_buff *skb, int out_ifc) {
 	//bpf_trace_printk("fwd:%d=0\n", out_ifc);
 }
 
-#ifdef RX_WRAPPER
 int handle_rx_wrapper(struct __sk_buff *skb) {
 	//bpf_trace_printk("" MODULE_UUID_SHORT ": rx:%d\n", skb->cb[0]);
 	struct metadata md = {};
@@ -289,43 +266,6 @@ int handle_rx_wrapper(struct __sk_buff *skb) {
 
 	return TC_ACT_SHOT;
 }
-#endif
-
-#ifdef TX_WRAPPER
-int handle_tx_wrapper(struct __sk_buff *skb) {
-	int md_id = skb->cb[0];
-	struct metadata *md = metadata.lookup(&md_id);
-	if (!md) {
-		bpf_trace_printk("tx: metadata lookup failed\n");
-		return TC_ACT_SHOT;
-	}
-	// copy to stack in cases llvm spills map pointers to stack
-	//struct metadata local_md = *md;
-	//local_md.flags = 0;
-	//local_md.redir_ifc = 0;
-	//local_md.clone_ifc = 0;
-	//md->flags = 0;
-	md->clone_ifc = 0;
-
-	int rc = handle_tx(skb, md);
-
-	// TODO: implementation
-	switch (rc) {
-		case RX_OK:
-			break;
-		case RX_REDIRECT:
-			break;
-		case RX_RECIRCULATE:
-			modules.call(skb, 2);
-			break;
-		case RX_DROP:
-			return TC_ACT_SHOT;
-	}
-	//metadata.update(&md_id, &local_md);
-	modules.call(skb, 0);
-	return TC_ACT_SHOT;
-}
-#endif
 
 static int pkt_redirect(void *pkt, struct metadata *md, int ifc) {
 	md->redir_ifc = ifc;
