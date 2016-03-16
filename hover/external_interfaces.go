@@ -224,14 +224,14 @@ func (h *HostMonitor) EnsureInterfaces(g Graph, pp *PatchPanel) {
 		switch deg := g.Degree(node); deg {
 		case 2:
 			//Debug.Printf("Adding ingress for %s\n", node.Link().Attrs().Name)
-			next := g.From(node)[0]
-			e := g.Edge(node, next).(Edge)
+			next := g.From(node)[0].(Node)
+			e := g.E(node, next)
 			chain, err := NewIngressChain(e.Chain())
 			if err != nil {
 				panic(err)
 			}
 			defer chain.Close()
-			Info.Printf(" %4d: %-11s{%#x}\n", e.FromID(), next.(Node).ShortPath(), e.Chain())
+			Info.Printf(" %4d: %-11s{%#x}\n", e.FID(), next.ShortPath(), e.Chain())
 			if err := ensureIngressFd(node.Link(), chain.FD()); err != nil {
 				panic(err)
 			}

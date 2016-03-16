@@ -62,24 +62,36 @@ func (n *AdapterNode) ReleaseInterfaceID(id int) {
 	n.handles.Release(id)
 }
 
-type Edge struct {
-	F, T     Node
-	W        [3]int
-	FID, TID int
+type Edge interface {
+	graph.Edge
+	F() Node
+	T() Node
+	FID() int
+	TID() int
+	Chain() [3]int
 }
 
-func (e Edge) From() graph.Node { return e.F }
-func (e Edge) To() graph.Node   { return e.T }
-func (e Edge) Weight() float64  { return float64(e.W[0]) }
-func (e Edge) Chain() [3]int    { return e.W }
-func (e Edge) FromID() int      { return e.FID }
-func (e Edge) ToID() int        { return e.TID }
+type EdgeChain struct {
+	f, t     Node
+	w        [3]int
+	fid, tid int
+}
+
+func (e EdgeChain) From() graph.Node { return e.f }
+func (e EdgeChain) To() graph.Node   { return e.t }
+func (e EdgeChain) Weight() float64  { return float64(e.w[0]) }
+func (e EdgeChain) F() Node          { return e.f }
+func (e EdgeChain) T() Node          { return e.t }
+func (e EdgeChain) Chain() [3]int    { return e.w }
+func (e EdgeChain) FID() int         { return e.fid }
+func (e EdgeChain) TID() int         { return e.tid }
 
 type Graph interface {
 	graph.DirectedBuilder
 	graph.NodeRemover
 	Degree(graph.Node) int
 	Node(int) Node
+	E(u, v graph.Node) Edge
 }
 
 type DirectedGraph struct {
@@ -92,7 +104,8 @@ func NewGraph() Graph {
 	}
 }
 
-func (g *DirectedGraph) Node(id int) Node { return g.DirectedGraph.Node(id).(Node) }
+func (g *DirectedGraph) Node(id int) Node       { return g.DirectedGraph.Node(id).(Node) }
+func (g *DirectedGraph) E(u, v graph.Node) Edge { return g.Edge(u, v).(Edge) }
 
 func DumpDotFile(g Graph) {
 	b, err := dot.Marshal(g, "dump", "", "  ", true)

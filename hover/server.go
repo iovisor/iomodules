@@ -448,8 +448,8 @@ func (s *HoverServer) handleLinkPost(r *http.Request) routeResponse {
 		toNode.SetID(s.g.NewNodeID())
 		s.g.AddNode(toNode)
 	}
-	s.g.SetEdge(Edge{fromNode, toNode, [3]int{toID<<16 | toNode.ID()}, fromID, toID})
-	s.g.SetEdge(Edge{toNode, fromNode, [3]int{fromID<<16 | fromNode.ID()}, toID, fromID})
+	s.g.SetEdge(EdgeChain{fromNode, toNode, [3]int{toID<<16 | toNode.ID()}, fromID, toID})
+	s.g.SetEdge(EdgeChain{toNode, fromNode, [3]int{fromID<<16 | fromNode.ID()}, toID, fromID})
 	s.recomputePolicies()
 	//id, err := s.patchPanel.Connect(adapters[0], adapters[1], req.Interfaces[0], req.Interfaces[1])
 	//if err != nil {

@@ -55,14 +55,14 @@ func (h *Renderer) Run(g Graph, pp *PatchPanel, hmon *HostMonitor) {
 		pp.modules.Set(strconv.Itoa(this.ID()), strconv.Itoa(this.FD()))
 		Info.Printf("visit: %d :: %s\n", this.ID(), this.ShortPath())
 		for _, t := range g.From(this) {
-			e := g.Edge(this, t).(Edge)
+			e := g.E(this, t)
 			adapter := this.(*AdapterNode).adapter
 			target := t.(Node)
 			fc := adapter.Table("forward_chain")
 			if fc == nil {
 				panic(fmt.Errorf("Could not find forward_chain in adapter"))
 			}
-			key := fmt.Sprintf("%d", e.FromID())
+			key := fmt.Sprintf("%d", e.FID())
 			val := fmt.Sprintf("{%#x}", e.Chain())
 			Info.Printf(" %4s: %-11s%s\n", key, target.ShortPath(), val)
 			if err := fc.Set(key, val); err != nil {
