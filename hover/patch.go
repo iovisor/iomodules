@@ -25,8 +25,6 @@ import (
 	"github.com/docker/libkv"
 	"github.com/docker/libkv/store"
 	"github.com/docker/libkv/store/boltdb"
-	"github.com/gonum/graph"
-	simplegraph "github.com/gonum/graph/simple"
 	"github.com/vishvananda/netlink"
 )
 
@@ -46,12 +44,12 @@ type PatchPanel struct {
 	tailcallFd    int
 	netdevRxFd    int
 	netdevTxFd    int
+	chainFd       int
 	kfreeFd       int
 	modules       AdapterTable
 	links         AdapterTable
 	moduleHandles *HandlePool
 	kv            store.Store
-	graph         graph.Graph
 }
 
 func NewPatchPanel() (pp *PatchPanel, err error) {
@@ -71,9 +69,9 @@ func NewPatchPanel() (pp *PatchPanel, err error) {
 		tailcallFd:    -1,
 		netdevRxFd:    -1,
 		netdevTxFd:    -1,
+		chainFd:       -1,
 		moduleHandles: NewHandlePool(1024),
 		kv:            kv,
-		graph:         simplegraph.NewUndirectedGraph(0.0, 0.0),
 	}
 	defer func() {
 		if err != nil {
@@ -82,7 +80,7 @@ func NewPatchPanel() (pp *PatchPanel, err error) {
 		}
 	}()
 	pp.adapter = &BpfAdapter{
-		id:     id,
+		uuid:   id,
 		name:   "patch",
 		config: make(map[string]interface{}),
 	}
@@ -104,19 +102,23 @@ func NewPatchPanel() (pp *PatchPanel, err error) {
 		return
 	}
 	Debug.Printf("Patch panel links table loaded: %v\n", pp.links.Config())
-	pp.netdevRxFd, err = pp.adapter.bpf.Load("recv_netdev_ingress", C.BPF_PROG_TYPE_SCHED_CLS)
+	pp.netdevRxFd, err = pp.adapter.bpf.LoadNet("recv_netdev_ingress")
 	if err != nil {
 		return
 	}
-	pp.netdevTxFd, err = pp.adapter.bpf.Load("recv_netdev_egress", C.BPF_PROG_TYPE_SCHED_CLS)
+	pp.netdevTxFd, err = pp.adapter.bpf.LoadNet("recv_netdev_egress")
 	if err != nil {
 		return
 	}
-	pp.tailcallFd, err = pp.adapter.bpf.Load("recv_tailcall", C.BPF_PROG_TYPE_SCHED_CLS)
+	pp.tailcallFd, err = pp.adapter.bpf.LoadNet("recv_tailcall")
 	if err != nil {
 		return
 	}
-	pp.kfreeFd, err = pp.adapter.bpf.Load("metadata_kfree_skbmem", C.BPF_PROG_TYPE_KPROBE)
+	pp.chainFd, err = pp.adapter.bpf.LoadNet("chain_pop")
+	if err != nil {
+		return
+	}
+	pp.kfreeFd, err = pp.adapter.bpf.LoadKprobe("metadata_kfree_skbmem")
 	if err != nil {
 		return
 	}
@@ -128,7 +130,7 @@ func NewPatchPanel() (pp *PatchPanel, err error) {
 }
 
 func (p *PatchPanel) AcquireHandle() (uint, error) {
-	return p.moduleHandles.Acquire()
+	return p.moduleHandles.Acquire(), nil
 }
 func (p *PatchPanel) ReleaseHandle(handle uint) {
 	p.moduleHandles.Release(handle)
@@ -141,7 +143,7 @@ func (p *PatchPanel) Close() {
 }
 
 func (p *PatchPanel) FD() int {
-	return p.tailcallFd
+	return p.chainFd
 }
 
 func (p *PatchPanel) Register(adapter *BpfAdapter, handle uint, fd int) error {
@@ -355,7 +357,7 @@ func ensureQdisc(link netlink.Link) (netlink.Qdisc, error) {
 	}
 	for _, q := range qds {
 		if q.Attrs().Handle == qHandle {
-			Debug.Printf("Found existing ingress qdisc %x\n", q.Attrs().Handle)
+			//Debug.Printf("Found existing ingress qdisc %x\n", q.Attrs().Handle)
 			return q, nil
 		}
 	}
@@ -402,6 +404,7 @@ func ensureIngressFd(link netlink.Link, fd int) error {
 	if err := netlink.FilterAdd(filter); err != nil {
 		return fmt.Errorf("failed adding ingress filter: %s", err)
 	}
+	//Debug.Printf("ensureIngressFd(%s) success\n", link.Attrs().Name)
 	return nil
 }
 

@@ -22,7 +22,8 @@ import (
 )
 
 type HostAdapter struct {
-	id     string
+	id     int
+	uuid   string
 	handle uint
 	name   string
 	perm   uint
@@ -45,24 +46,14 @@ func (adapter *HostAdapter) SetConfig(config map[string]interface{}) error {
 	return nil
 }
 
-func (adapter *HostAdapter) Config() map[string]interface{} {
-	return adapter.config
-}
-
-func (adapter *HostAdapter) ID() string {
-	return adapter.id
-}
-
-func (adapter *HostAdapter) Handle(handler Handler) uint {
-	return 0 //adapter.handle
-}
-
-func (adapter *HostAdapter) Init() error {
-	return nil
-}
-
-func (adapter *HostAdapter) Close() {
-}
+func (adapter *HostAdapter) Config() map[string]interface{} { return adapter.config }
+func (adapter *HostAdapter) ID() int                        { return adapter.id }
+func (adapter *HostAdapter) FD() int                        { return -1 }
+func (adapter *HostAdapter) SetID(id int)                   { adapter.id = id }
+func (adapter *HostAdapter) UUID() string                   { return adapter.uuid }
+func (adapter *HostAdapter) Handle(handler Handler) uint    { return 0 }
+func (adapter *HostAdapter) Init() error                    { return nil }
+func (adapter *HostAdapter) Close()                         {}
 
 type HostInterface struct {
 	id   int

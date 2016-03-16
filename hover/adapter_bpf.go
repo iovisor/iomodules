@@ -20,7 +20,9 @@ import (
 	"bytes"
 	"fmt"
 	"regexp"
+	"runtime"
 	"strings"
+	"syscall"
 	"unsafe"
 )
 
@@ -40,22 +42,39 @@ type BpfModule struct {
 	kprobes map[string]unsafe.Pointer
 }
 
+var (
+	defaultCflags  []string
+	MAX_MODULES    uint = 1024
+	MAX_INTERFACES uint = 128
+)
+
+func init() {
+	defaultCflags = []string{
+		fmt.Sprintf("-DNUMCPUS=%d", runtime.NumCPU()),
+		fmt.Sprintf("-DMAX_INTERFACES=%d", MAX_INTERFACES),
+		fmt.Sprintf("-DMAX_MODULES=%d", MAX_MODULES),
+		"-DMAX_METADATA=10240",
+	}
+}
+
 // NewBpfModule constructor
 func NewBpfModule(code string, cflags []string) *BpfModule {
-	Debug.Println("Creating BpfModule from string")
-	cflagsC := make([]*C.char, len(cflags))
+	//Debug.Println("Creating BpfModule from string")
+	cflagsC := make([]*C.char, len(defaultCflags)+len(cflags))
+	defer func() {
+		for _, cflag := range cflagsC {
+			C.free(unsafe.Pointer(cflag))
+		}
+	}()
 	for i, cflag := range cflags {
-		cs := C.CString(cflag)
-		cflagsC[i] = cs
-		defer C.free(unsafe.Pointer(cs))
+		cflagsC[i] = C.CString(cflag)
 	}
-	var cflagsP **C.char
-	if len(cflagsC) > 0 {
-		cflagsP = (**C.char)(&cflagsC[0])
+	for i, cflag := range defaultCflags {
+		cflagsC[len(cflags)+i] = C.CString(cflag)
 	}
 	cs := C.CString(code)
 	defer C.free(unsafe.Pointer(cs))
-	c := C.bpf_module_create_c_from_string(cs, 2, cflagsP, C.int(len(cflagsC)))
+	c := C.bpf_module_create_c_from_string(cs, 2, (**C.char)(&cflagsC[0]), C.int(len(cflagsC)))
 	if c == nil {
 		return nil
 	}
@@ -66,7 +85,7 @@ func NewBpfModule(code string, cflags []string) *BpfModule {
 	}
 }
 func (bpf *BpfModule) Close() {
-	Debug.Println("Closing BpfModule")
+	//Debug.Println("Closing BpfModule")
 	C.bpf_module_destroy(bpf.p)
 	// close the kprobes opened by this module
 	for k, v := range bpf.kprobes {
@@ -76,10 +95,16 @@ func (bpf *BpfModule) Close() {
 		C.bpf_detach_kprobe(descCS)
 		C.free(unsafe.Pointer(descCS))
 	}
+	for _, fd := range bpf.funcs {
+		err := syscall.Close(fd)
+		if err != nil {
+			Error.Printf("Error closing bpf fd: %s", err)
+		}
+	}
 }
 
 func (bpf *BpfModule) initRxHandler() (int, error) {
-	fd, err := bpf.Load("handle_rx_wrapper", C.BPF_PROG_TYPE_SCHED_CLS)
+	fd, err := bpf.LoadNet("handle_rx_wrapper")
 	if err != nil {
 		return -1, err
 	}
@@ -87,13 +112,19 @@ func (bpf *BpfModule) initRxHandler() (int, error) {
 }
 
 func (bpf *BpfModule) initTxHandler() (int, error) {
-	fd, err := bpf.Load("handle_tx_wrapper", C.BPF_PROG_TYPE_SCHED_CLS)
+	fd, err := bpf.LoadNet("handle_tx_wrapper")
 	if err != nil {
 		return -1, err
 	}
 	return fd, nil
 }
 
+func (bpf *BpfModule) LoadNet(name string) (int, error) {
+	return bpf.Load(name, C.BPF_PROG_TYPE_SCHED_CLS)
+}
+func (bpf *BpfModule) LoadKprobe(name string) (int, error) {
+	return bpf.Load(name, C.BPF_PROG_TYPE_KPROBE)
+}
 func (bpf *BpfModule) Load(name string, progType int) (int, error) {
 	fd, ok := bpf.funcs[name]
 	if ok {
@@ -185,9 +216,11 @@ func (bpf *BpfModule) TableIter() <-chan map[string]interface{} {
 }
 
 type BpfAdapter struct {
-	id           string
+	id           int
+	uuid         string
 	handles      [HandlerMax]uint
 	name         string
+	tags         []string
 	perm         uint
 	hasRxHandler bool
 	hasTxHandler bool
@@ -195,19 +228,13 @@ type BpfAdapter struct {
 	bpf          *BpfModule
 	patchPanel   *PatchPanel
 	interfaces   *HandlePool
+	fd           int
 }
 
-func (adapter *BpfAdapter) Type() string {
-	return "bpf"
-}
-
-func (adapter *BpfAdapter) Name() string {
-	return adapter.name
-}
-
-func (adapter *BpfAdapter) Perm() uint {
-	return adapter.perm
-}
+func (adapter *BpfAdapter) Type() string   { return "bpf" }
+func (adapter *BpfAdapter) Name() string   { return adapter.name }
+func (adapter *BpfAdapter) Tags() []string { return adapter.tags }
+func (adapter *BpfAdapter) Perm() uint     { return adapter.perm }
 
 func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {
 	var code, fullCode string
@@ -229,7 +256,7 @@ func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {
 			handlers = val
 		}
 	}
-	var cflags []string
+	cflags := []string{"-DMODULE_UUID_SHORT=\"" + adapter.uuid[:8] + "\""}
 	for _, v := range handlers {
 		handler, ok := v.(string)
 		if !ok {
@@ -257,64 +284,61 @@ func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {
 	return nil
 }
 
-func (adapter *BpfAdapter) Config() map[string]interface{} {
-	return adapter.config
-}
-
-func (adapter *BpfAdapter) ID() string {
-	return adapter.id
-}
-func (adapter *BpfAdapter) Handle(handler Handler) uint {
-	return adapter.handles[handler]
-}
+func (adapter *BpfAdapter) Config() map[string]interface{} { return adapter.config }
+func (adapter *BpfAdapter) ID() int                        { return adapter.id }
+func (adapter *BpfAdapter) SetID(id int)                   { adapter.id = id }
+func (adapter *BpfAdapter) UUID() string                   { return adapter.uuid }
+func (adapter *BpfAdapter) Handle(handler Handler) uint    { return adapter.handles[handler] }
+func (adapter *BpfAdapter) FD() int                        { return adapter.fd }
 
 func (adapter *BpfAdapter) Init() error {
-	t := adapter.Table("modules")
-	if t == nil {
-		return fmt.Errorf("Unable to load modules table")
-	}
+	//t := adapter.Table("modules")
+	//if t == nil {
+	//	return fmt.Errorf("Unable to load modules table")
+	//}
 	if adapter.hasRxHandler {
 		fd, err := adapter.bpf.initRxHandler()
 		if err != nil {
 			Warn.Printf("Unable to init rx handler: %s\n", err)
 			return err
 		}
-		h, err := adapter.patchPanel.AcquireHandle()
-		if err != nil {
-			return err
-		}
-		adapter.handles[HandlerRx] = h
-		// set callback for recirculate to rx
-		if err := t.Set("1", fmt.Sprintf("%d", fd)); err != nil {
-			return err
-		}
-		if err := adapter.patchPanel.Register(adapter, h, fd); err != nil {
-			return err
-		}
+		adapter.fd = fd
+		//h, err := adapter.patchPanel.AcquireHandle()
+		//if err != nil {
+		//	return err
+		//}
+		//adapter.handles[HandlerRx] = h
+		//// set callback for recirculate to rx
+		//if err := t.Set("1", fmt.Sprintf("%d", fd)); err != nil {
+		//	return err
+		//}
+		//if err := adapter.patchPanel.Register(adapter, h, fd); err != nil {
+		//	return err
+		//}
 	}
 	if adapter.hasTxHandler {
-		fd, err := adapter.bpf.initTxHandler()
-		if err != nil {
-			Warn.Printf("Unable to init tx handler: %s\n", err)
-			return err
-		}
-		h, err := adapter.patchPanel.AcquireHandle()
-		if err != nil {
-			return err
-		}
-		adapter.handles[HandlerTx] = h
-		// set callback for recirculate to tx
-		if err = t.Set("2", fmt.Sprintf("%d", fd)); err != nil {
-			return err
-		}
-		if err = adapter.patchPanel.Register(adapter, h, fd); err != nil {
-			return err
-		}
+		//fd, err := adapter.bpf.initTxHandler()
+		//if err != nil {
+		//	Warn.Printf("Unable to init tx handler: %s\n", err)
+		//	return err
+		//}
+		//h, err := adapter.patchPanel.AcquireHandle()
+		//if err != nil {
+		//	return err
+		//}
+		//adapter.handles[HandlerTx] = h
+		//// set callback for recirculate to tx
+		//if err = t.Set("2", fmt.Sprintf("%d", fd)); err != nil {
+		//	return err
+		//}
+		//if err = adapter.patchPanel.Register(adapter, h, fd); err != nil {
+		//	return err
+		//}
 	}
 	// set callback for returning to patch panel
-	if err := t.Set("0", fmt.Sprintf("%d", adapter.patchPanel.FD())); err != nil {
-		return err
-	}
+	//if err := t.Set("0", fmt.Sprintf("%d", adapter.patchPanel.FD())); err != nil {
+	//	return err
+	//}
 	return nil
 }
 
@@ -343,10 +367,7 @@ func (ifc *BpfInterface) Name() string {
 }
 
 func (adapter *BpfAdapter) AcquireInterface(name string) (ifc Interface, err error) {
-	handle, err := adapter.interfaces.Acquire()
-	if err != nil {
-		return
-	}
+	handle := adapter.interfaces.Acquire()
 	ifc = &BpfInterface{id: int(handle), name: name}
 	return
 }
@@ -438,6 +459,7 @@ func (table *BpfTable) keyToBytes(keyStr string) ([]byte, error) {
 	defer C.free(unsafe.Pointer(keyCS))
 	r := C.bpf_table_key_sscanf(mod, table.id, keyCS, keyP)
 	if r != 0 {
+		//Warn.Printf("key type is \"%s\"\n", C.GoString(C.bpf_table_key_desc_id(mod, table.id)))
 		return nil, fmt.Errorf("error scanning key (%v) from string", keyStr)
 	}
 	return key, nil
@@ -452,7 +474,8 @@ func (table *BpfTable) leafToBytes(leafStr string) ([]byte, error) {
 	defer C.free(unsafe.Pointer(leafCS))
 	r := C.bpf_table_leaf_sscanf(mod, table.id, leafCS, leafP)
 	if r != 0 {
-		return nil, fmt.Errorf("error scanning leaf (%v) from string")
+		//Warn.Printf("leaf type is \"%s\"\n", C.GoString(C.bpf_table_leaf_desc_id(mod, table.id)))
+		return nil, fmt.Errorf("error scanning leaf (%v) from string", leafStr)
 	}
 	return leaf, nil
 }

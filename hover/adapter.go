@@ -17,7 +17,7 @@
 package hover
 
 func NewAdapter(req *createModuleRequest, pp *PatchPanel) (adapter Adapter, err error) {
-	id, err := NewUUID4()
+	uuid, err := NewUUID4()
 	if err != nil {
 		return
 	}
@@ -25,8 +25,9 @@ func NewAdapter(req *createModuleRequest, pp *PatchPanel) (adapter Adapter, err 
 	switch req.ModuleType {
 	case "bpf":
 		a := &BpfAdapter{
-			id:         id,
+			uuid:       uuid,
 			name:       req.DisplayName,
+			tags:       req.Tags,
 			perm:       PermR | PermW,
 			config:     make(map[string]interface{}),
 			patchPanel: pp,
@@ -54,11 +55,15 @@ const (
 )
 
 type Adapter interface {
-	ID() string
+	ID() int
+	SetID(id int)
+	UUID() string
+	FD() int
 	Handle(handler Handler) uint
 	Close()
 	Type() string
 	Name() string
+	Tags() []string
 	Perm() uint
 	Config() map[string]interface{}
 	SetConfig(map[string]interface{}) error

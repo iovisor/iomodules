@@ -15,34 +15,84 @@
 package hover
 
 import (
+	"fmt"
+	"io/ioutil"
 	"math"
 
 	"github.com/gonum/graph"
+	"github.com/gonum/graph/encoding/dot"
 	"github.com/gonum/graph/simple"
 )
 
-type Node struct {
-	adapter Adapter
-	id      int
+type Node interface {
+	graph.Node
+	FD() int
+	Path() string
+	ShortPath() string
+	DOTID() string
+	SetID(id int)
+	NewInterfaceID() uint
+	ReleaseInterfaceID(id uint)
 }
 
-func (n Node) ID() int {
-	return n.id
+type AdapterNode struct {
+	adapter Adapter
+	handles *HandlePool
+}
+
+func NewAdapterNode(adapter Adapter) *AdapterNode {
+	return &AdapterNode{
+		adapter: adapter,
+		handles: NewHandlePool(MAX_INTERFACES),
+	}
+}
+
+func (n *AdapterNode) ID() int           { return n.adapter.ID() }
+func (n *AdapterNode) FD() int           { return n.adapter.FD() }
+func (n *AdapterNode) DOTID() string     { return fmt.Sprintf("%q", n.adapter.UUID()) }
+func (n *AdapterNode) Path() string      { return "modules/" + n.adapter.UUID() }
+func (n *AdapterNode) ShortPath() string { return "m/" + n.adapter.UUID()[:8] }
+func (n *AdapterNode) SetID(id int)      { n.adapter.SetID(id) }
+
+func (n *AdapterNode) NewInterfaceID() uint {
+	return n.handles.Acquire()
+}
+func (n *AdapterNode) ReleaseInterfaceID(id uint) {
+	n.handles.Release(id)
 }
 
 type Edge struct {
-	F, T graph.Node
-	W    float64
+	F, T     Node
+	W        [3]uint
+	FID, TID uint
 }
 
 func (e Edge) From() graph.Node { return e.F }
 func (e Edge) To() graph.Node   { return e.T }
-func (e Edge) Weight() float64  { return e.W }
+func (e Edge) Weight() float64  { return float64(e.W[0]) }
+func (e Edge) Chain() [3]uint   { return e.W }
+func (e Edge) FromID() uint     { return e.FID }
+func (e Edge) ToID() uint       { return e.TID }
 
 type Graph interface {
-	graph.Graph
+	graph.DirectedBuilder
+	graph.NodeRemover
+	Degree(graph.Node) int
+	Node(int) graph.Node
 }
 
 func NewGraph() Graph {
 	return simple.NewDirectedGraph(0, math.Inf(1))
+}
+
+func DumpDotFile(g Graph) {
+	b, err := dot.Marshal(g, "dump", "", "  ", true)
+	if err != nil {
+		Error.Println(err)
+		return
+	}
+	err = ioutil.WriteFile("/tmp/hover.dot", b, 0644)
+	if err != nil {
+		Error.Println(err)
+	}
 }

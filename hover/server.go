@@ -8,7 +8,11 @@ import (
 	"github.com/gorilla/mux"
 	"net/http"
 	"runtime"
+	"strings"
 	"sync"
+
+	"github.com/gonum/graph"
+	"github.com/gonum/graph/traverse"
 )
 
 type routeResponse struct {
@@ -20,7 +24,10 @@ type routeResponse struct {
 type HoverServer struct {
 	handler        http.Handler
 	adapterEntries AdapterEntries
-	graph          Graph
+	patchPanel     *PatchPanel
+	g              Graph
+	hmon           *HostMonitor
+	renderer       *Renderer
 }
 
 type handlerFunc func(r *http.Request) routeResponse
@@ -30,12 +37,19 @@ func makeHandler(fn handlerFunc) http.HandlerFunc {
 		defer func() {
 			if r := recover(); r != nil {
 				switch err := r.(type) {
+				// coming from an internal go library
 				case runtime.Error:
 					http.Error(w, "Internal error", http.StatusBadRequest)
 					panic(err)
+				// coming from fmt.Errorf from our own package
 				case error:
 					Error.Println(err.Error())
 					http.Error(w, err.Error(), http.StatusBadRequest)
+				// coming from a helper library that doesn't use fmt.Errorf()
+				case string:
+					Error.Println(r)
+					http.Error(w, "Internal error", http.StatusBadRequest)
+				// ??
 				default:
 					http.Error(w, "Internal error", http.StatusBadRequest)
 					panic(r)
@@ -100,31 +114,28 @@ func sendReply(w http.ResponseWriter, r *http.Request, rsp *routeResponse) {
 type createModuleRequest struct {
 	ModuleType  string                 `json:"module_type"`
 	DisplayName string                 `json:"display_name"`
+	Tags        []string               `json:"tags"`
 	Config      map[string]interface{} `json:"config"`
 }
 type moduleEntry struct {
 	Id          string                 `json:"id"`
 	ModuleType  string                 `json:"module_type"`
 	DisplayName string                 `json:"display_name"`
+	Tags        []string               `json:"tags"`
 	Perm        string                 `json:"permissions"`
 	Config      map[string]interface{} `json:"config"`
 }
 
 type AdapterEntries struct {
-	mtx        sync.RWMutex
-	m          map[string]Adapter
-	patchPanel *PatchPanel
+	mtx sync.RWMutex
+	m   map[string]Adapter
 }
 
 func (a *AdapterEntries) Add(adapter Adapter) {
-	a.mtx.Lock()
-	defer a.mtx.Unlock()
-	a.m[adapter.ID()] = adapter
+	a.m[adapter.UUID()] = adapter
 }
 
 func (a *AdapterEntries) Remove(id string) {
-	a.mtx.Lock()
-	defer a.mtx.Unlock()
 	if adapter, ok := a.m[id]; ok {
 		if adapter.Perm()&PermW == 0 {
 			panic(fmt.Errorf("Cannot remove %s, permission denied", id))
@@ -134,14 +145,13 @@ func (a *AdapterEntries) Remove(id string) {
 }
 
 func (a *AdapterEntries) GetAll() []*moduleEntry {
-	a.mtx.RLock()
-	defer a.mtx.RUnlock()
 	result := []*moduleEntry{}
 	for _, adapter := range a.m {
 		result = append(result, &moduleEntry{
-			Id:          adapter.ID(),
+			Id:          adapter.UUID(),
 			ModuleType:  adapter.Type(),
 			DisplayName: adapter.Name(),
+			Tags:        adapter.Tags(),
 			Config:      adapter.Config(),
 			Perm:        fmt.Sprintf("0%x00", adapter.Perm()),
 		})
@@ -150,8 +160,6 @@ func (a *AdapterEntries) GetAll() []*moduleEntry {
 }
 
 func (a *AdapterEntries) Get(id string) *moduleEntry {
-	a.mtx.RLock()
-	defer a.mtx.RUnlock()
 	var result *moduleEntry
 	if adapter, ok := a.m[id]; ok {
 		result = adapterToModuleEntry(adapter)
@@ -161,9 +169,10 @@ func (a *AdapterEntries) Get(id string) *moduleEntry {
 
 func adapterToModuleEntry(a Adapter) *moduleEntry {
 	return &moduleEntry{
-		Id:          a.ID(),
+		Id:          a.UUID(),
 		ModuleType:  a.Type(),
 		DisplayName: a.Name(),
+		Tags:        a.Tags(),
 		Config:      a.Config(),
 		Perm:        fmt.Sprintf("0%x00", a.Perm()),
 	}
@@ -183,20 +192,16 @@ func getRequestVar(r *http.Request, key string) string {
 
 func (s *HoverServer) Init() (err error) {
 	s.adapterEntries.m = make(map[string]Adapter)
-	s.adapterEntries.patchPanel, err = NewPatchPanel()
+	s.patchPanel, err = NewPatchPanel()
 	if err != nil {
 		return
 	}
-	handle, err := s.adapterEntries.patchPanel.AcquireHandle()
+	s.hmon, err = NewHostMonitor(s.g)
 	if err != nil {
 		return
 	}
-	s.adapterEntries.m["host"] = &HostAdapter{
-		id:     "host",
-		handle: handle,
-		name:   "host",
-		perm:   PermR,
-	}
+	s.renderer = NewRenderer()
+
 	return
 }
 
@@ -211,11 +216,13 @@ func (s *HoverServer) handleModulePost(r *http.Request) routeResponse {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
 	}
-	adapter, err := NewAdapter(&req, s.adapterEntries.patchPanel)
+	adapter, err := NewAdapter(&req, s.patchPanel)
 	if err != nil {
 		panic(err)
 	}
 	s.adapterEntries.Add(adapter)
+	adapter.(*BpfAdapter).id = s.g.NewNodeID()
+	s.g.AddNode(NewAdapterNode(adapter))
 	entry := adapterToModuleEntry(adapter)
 	return routeResponse{body: entry}
 }
@@ -233,8 +240,6 @@ func (s *HoverServer) handleModulePut(r *http.Request) routeResponse {
 }
 func (s *HoverServer) handleModuleDelete(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	s.adapterEntries.mtx.Lock()
-	defer s.adapterEntries.mtx.Unlock()
 	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
@@ -246,8 +251,6 @@ func (s *HoverServer) handleModuleDelete(r *http.Request) routeResponse {
 
 func (s *HoverServer) handleModuleTableList(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	s.adapterEntries.mtx.RLock()
-	defer s.adapterEntries.mtx.RUnlock()
 	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
@@ -256,8 +259,6 @@ func (s *HoverServer) handleModuleTableList(r *http.Request) routeResponse {
 }
 func (s *HoverServer) handleModuleTableGet(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	s.adapterEntries.mtx.RLock()
-	defer s.adapterEntries.mtx.RUnlock()
 	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
@@ -272,8 +273,6 @@ func (s *HoverServer) handleModuleTableGet(r *http.Request) routeResponse {
 
 func (s *HoverServer) handleModuleTableEntryList(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	s.adapterEntries.mtx.RLock()
-	defer s.adapterEntries.mtx.RUnlock()
 	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
@@ -304,8 +303,6 @@ func (s *HoverServer) handleModuleTableEntryPost(r *http.Request) routeResponse 
 		panic(err)
 	}
 	id := getRequestVar(r, "moduleId")
-	s.adapterEntries.mtx.RLock()
-	defer s.adapterEntries.mtx.RUnlock()
 	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
@@ -325,8 +322,6 @@ func (s *HoverServer) handleModuleTableEntryPost(r *http.Request) routeResponse 
 }
 func (s *HoverServer) handleModuleTableEntryGet(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	s.adapterEntries.mtx.RLock()
-	defer s.adapterEntries.mtx.RUnlock()
 	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
@@ -349,8 +344,6 @@ func (s *HoverServer) handleModuleTableEntryPut(r *http.Request) routeResponse {
 		panic(err)
 	}
 	id := getRequestVar(r, "moduleId")
-	s.adapterEntries.mtx.RLock()
-	defer s.adapterEntries.mtx.RUnlock()
 	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
@@ -371,8 +364,6 @@ func (s *HoverServer) handleModuleTableEntryPut(r *http.Request) routeResponse {
 }
 func (s *HoverServer) handleModuleTableEntryDelete(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	s.adapterEntries.mtx.RLock()
-	defer s.adapterEntries.mtx.RUnlock()
 	adapter, ok := s.adapterEntries.m[id]
 	if !ok {
 		return notFound()
@@ -389,51 +380,82 @@ func (s *HoverServer) handleModuleTableEntryDelete(r *http.Request) routeRespons
 	return routeResponse{}
 }
 
+func (s *HoverServer) lookupNode(nodePath string) Node {
+	parts := strings.SplitN(nodePath, "/", 2)
+	if len(parts) != 2 {
+		panic(fmt.Errorf("Malformed node path %q\n", nodePath))
+	}
+	switch parts[0] {
+	case "external_interfaces":
+		node, err := s.hmon.InterfaceByName(parts[1])
+		if err != nil {
+			panic(err)
+		}
+		return node
+	case "modules":
+		adapter, ok := s.adapterEntries.m[parts[1]]
+		if !ok {
+			panic(fmt.Errorf("Module %q not found", parts[1]))
+		}
+		return s.g.Node(adapter.ID()).(Node)
+	default:
+		panic(fmt.Errorf("Unknown node path prefix %q", parts[0]))
+	}
+	return nil
+}
+
 type linkEntry struct {
-	Id         string   `json:"id"`
-	Modules    []string `json:"modules"`
-	Interfaces []string `json:"interfaces"`
+	From string `json:"from"`
+	To   string `json:"to"`
 }
 
 func (s *HoverServer) handleLinkList(r *http.Request) routeResponse {
-	entries := []*linkEntry{}
-	return routeResponse{body: entries}
-}
-
-type createLinkRequest struct {
-	Modules    []string `json:"modules"`
-	Interfaces []string `json:"interfaces"`
+	var edges []linkEntry
+	visitFn := func(u, v graph.Node) {
+		e := s.g.Edge(u, v).(Edge)
+		edges = append(edges, linkEntry{e.From().(Node).Path(), e.To().(Node).Path()})
+	}
+	t := &traverse.BreadthFirst{Visit: visitFn}
+	for _, node := range s.hmon.Interfaces() {
+		t.Walk(s.g, node, nil)
+	}
+	return routeResponse{body: edges}
 }
 
 func (s *HoverServer) handleLinkPost(r *http.Request) routeResponse {
-	var req createLinkRequest
+	var req linkEntry
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
 	}
-	if len(req.Modules) < 2 {
-		panic(fmt.Errorf("Too few modules in connect request"))
+	fromNode := s.lookupNode(req.From)
+	toNode := s.lookupNode(req.To)
+	if s.g.HasEdgeBetween(fromNode, toNode) {
+		panic(fmt.Errorf("Link already exists between %q and %q", fromNode, toNode))
 	}
-	if len(req.Interfaces) != len(req.Modules) {
-		panic(fmt.Errorf("Mismatched arguments between 'modules' and 'interfaces"))
+	fromID := fromNode.NewInterfaceID()
+	if fromNode.ID() < 0 {
+		fromNode.SetID(s.g.NewNodeID())
+		s.g.AddNode(fromNode)
 	}
-	var adapters []Adapter
-	for _, id := range req.Modules {
-		a, ok := s.adapterEntries.m[id]
-		if !ok {
-			panic(fmt.Errorf("Reference to module %s not found in connect request", id))
-		}
-		adapters = append(adapters, a)
+	toID := toNode.NewInterfaceID()
+	if toNode.ID() < 0 {
+		toNode.SetID(s.g.NewNodeID())
+		s.g.AddNode(toNode)
 	}
-	id, err := s.adapterEntries.patchPanel.Connect(adapters[0], adapters[1], req.Interfaces[0], req.Interfaces[1])
-	if err != nil {
-		panic(err)
-	}
-	return routeResponse{
-		body: &linkEntry{
-			Id:      id,
-			Modules: req.Modules,
-		},
-	}
+	s.g.SetEdge(Edge{fromNode, toNode, [3]uint{toID<<16 | uint(toNode.ID())}, fromID, toID})
+	s.g.SetEdge(Edge{toNode, fromNode, [3]uint{fromID<<16 | uint(fromNode.ID())}, toID, fromID})
+	s.recomputePolicies()
+	//id, err := s.patchPanel.Connect(adapters[0], adapters[1], req.Interfaces[0], req.Interfaces[1])
+	//if err != nil {
+	//	panic(err)
+	//}
+	return routeResponse{}
+}
+
+func (s *HoverServer) recomputePolicies() {
+	s.hmon.EnsureInterfaces(s.g, s.patchPanel)
+	s.renderer.Run(s.g, s.patchPanel, s.hmon)
+	DumpDotFile(s.g)
 }
 func (s *HoverServer) handleLinkGet(r *http.Request) routeResponse {
 	return routeResponse{}
@@ -496,7 +518,7 @@ func (s *HoverServer) handleModuleInterfacePolicyList(r *http.Request) routeResp
 	if ifc == nil {
 		return notFound()
 	}
-	entries, err := s.adapterEntries.patchPanel.GetPolicies(adapterA, ifc)
+	entries, err := s.patchPanel.GetPolicies(adapterA, ifc)
 	if err != nil {
 		panic(err)
 	}
@@ -518,13 +540,13 @@ func (s *HoverServer) handleModuleInterfacePolicyPost(r *http.Request) routeResp
 	}
 	adapterB, ok := s.adapterEntries.m[req.Module]
 	if !ok {
-		panic(fmt.Errorf("Reference to module %s not found", req.Module))
+		panic(fmt.Errorf("Reference to module %q not found", req.Module))
 	}
 	ifc := adapterA.InterfaceByName(getRequestVar(r, "interfaceId"))
 	if ifc == nil {
 		return notFound()
 	}
-	id, err := s.adapterEntries.patchPanel.EnablePolicy(adapterA, adapterB, ifc)
+	id, err := s.patchPanel.EnablePolicy(adapterA, adapterB, ifc)
 	if err != nil {
 		panic(err)
 	}
@@ -535,14 +557,18 @@ func (s *HoverServer) handleModuleInterfacePolicyPost(r *http.Request) routeResp
 		},
 	}
 }
-func (s *HoverServer) handleModuleInterfacePolicyGet(r *http.Request) routeResponse {
-	return routeResponse{}
-}
-func (s *HoverServer) handleModuleInterfacePolicyPut(r *http.Request) routeResponse {
-	return routeResponse{}
-}
-func (s *HoverServer) handleModuleInterfacePolicyDelete(r *http.Request) routeResponse {
-	return routeResponse{}
+
+func (s *HoverServer) handleExternalInterfaceList(r *http.Request) routeResponse {
+	var interfaces []interfaceEntry
+	for _, ifc := range s.hmon.Interfaces() {
+		interfaces = append(interfaces, interfaceEntry{
+			Id:   fmt.Sprintf("%d", ifc.Link().Attrs().Index),
+			Name: ifc.Link().Attrs().Name,
+		})
+	}
+	return routeResponse{
+		body: interfaces,
+	}
 }
 
 func (s *HoverServer) Handler() http.Handler {
@@ -551,7 +577,7 @@ func (s *HoverServer) Handler() http.Handler {
 
 func (s *HoverServer) Close() error {
 	if s != nil {
-		s.adapterEntries.patchPanel.Close()
+		s.patchPanel.Close()
 	}
 	return nil
 }
@@ -562,7 +588,7 @@ func NewServer() *HoverServer {
 
 	s := &HoverServer{
 		handler: rtr,
-		graph:   NewGraph(),
+		g:       NewGraph(),
 	}
 	err := s.Init()
 	if err != nil {
@@ -570,11 +596,10 @@ func NewServer() *HoverServer {
 	}
 
 	// modules
-	// modules/{moduleId}/interfaces
-	// modules/{moduleId}/interfaces/{interfaceId}/policies
 	// modules/{moduleId}/tables
 	// modules/{moduleId}/tables/{tableId}/entries
 	// links
+	// external_interfaces
 
 	mod := rtr.PathPrefix("/modules").Subrouter()
 	mod.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleModuleList))
@@ -590,9 +615,6 @@ func NewServer() *HoverServer {
 	ftr := ifc.PathPrefix("/{interfaceId}/policies").Subrouter()
 	ftr.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleModuleInterfacePolicyList))
 	ftr.Methods("POST").Path("/").HandlerFunc(makeHandler(s.handleModuleInterfacePolicyPost))
-	ftr.Methods("GET").Path("/{policyId}").HandlerFunc(makeHandler(s.handleModuleInterfacePolicyGet))
-	ftr.Methods("PUT").Path("/{policyId}").HandlerFunc(makeHandler(s.handleModuleInterfacePolicyPut))
-	ftr.Methods("DELETE").Path("/{policyId}").HandlerFunc(makeHandler(s.handleModuleInterfacePolicyDelete))
 
 	tbl := mod.PathPrefix("/{moduleId}/tables").Subrouter()
 	tbl.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleModuleTableList))
@@ -611,6 +633,9 @@ func NewServer() *HoverServer {
 	lnk.Methods("GET").Path("/{connId}").HandlerFunc(makeHandler(s.handleLinkGet))
 	lnk.Methods("PUT").Path("/{connId}").HandlerFunc(makeHandler(s.handleLinkPut))
 	lnk.Methods("DELETE").Path("/{connId}").HandlerFunc(makeHandler(s.handleLinkDelete))
+
+	ext := rtr.PathPrefix("/external_interfaces").Subrouter()
+	ext.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleExternalInterfaceList))
 
 	return s
 }

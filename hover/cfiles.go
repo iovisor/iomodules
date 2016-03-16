@@ -28,6 +28,19 @@ enum {
 	RX_ERROR,
 };
 
+struct chain {
+	u32 hops[3];
+};
+static inline u16 chain_ifc(struct chain *c) {
+	return c->hops[0] >> 16;
+}
+static inline bool chain_direction(struct chain *c) {
+	return (c->hops[0] >> 15) & 0x1;
+}
+static inline u16 chain_module(struct chain *c) {
+	return c->hops[0] & 0x7fff;
+}
+
 struct type_value {
 	u64 type:8;
 	u64 value:56;
@@ -36,7 +49,7 @@ struct metadata {
 	// An array of type/value pairs for the module to do with as it pleases. The
 	// array is initialized to zero when the event first enters the module chain.
 	// The values are preserved across modules.
-	struct type_value data[8];
+	struct type_value data[4];
 
 	// A field reserved for use by the wrapper and helper functions.
 	u32 is_egress:1;
@@ -68,12 +81,32 @@ static int pkt_mirror(void *pkt, struct metadata *md, int ifc);
 static int pkt_drop(void *pkt, struct metadata *md);
 `
 
+var netdevRxC string = `
+BPF_TABLE("extern", int, int, modules, MAX_MODULES);
+int ingress(struct __sk_buff *skb) {
+	//bpf_trace_printk("ingress %d\n", skb->ifindex);
+	skb->cb[0] = CHAIN_VALUE0 >> 16;
+	skb->cb[1] = CHAIN_VALUE1;
+	skb->cb[2] = CHAIN_VALUE2;
+	modules.call(skb, CHAIN_VALUE0 & 0x7fff);
+	return 2;
+}
+`
+
+var netdevTxC string = `
+int egress(struct __sk_buff *skb) {
+	//bpf_trace_printk("egress %d\n", INTERFACE_ID);
+	bpf_redirect(INTERFACE_ID, 0);
+	return 7;
+}
+`
+
 var patchC string = `
 #include <linux/ptrace.h>
 
-BPF_TABLE_PUBLIC("array", int, struct metadata, metadata, 8);
+BPF_TABLE_PUBLIC("array", int, struct metadata, metadata, NUMCPUS);
 
-BPF_TABLE("prog", int, int, modules, 1024);
+BPF_TABLE_PUBLIC("prog", int, int, modules, MAX_MODULES);
 
 struct link_key {
 	int module_id;
@@ -92,7 +125,7 @@ struct link {
 BPF_TABLE("hash", struct link_key, struct link, links, 1024);
 
 // table for tracking metadata in skbs when packet is in-kernel
-BPF_TABLE("hash", uintptr_t, struct metadata, skb_metadata, 10240);
+BPF_TABLE("hash", uintptr_t, struct metadata, skb_metadata, MAX_METADATA);
 
 // Attach to kfree_skbmem kprobe to reclaim metadata.
 // This is a bit of a hack, but all of the skb fields are written over when
@@ -196,29 +229,48 @@ int recv_tailcall(struct __sk_buff *skb) {
 	}
 	return invoke_module(skb, &md, link);
 }
+
+int chain_pop(struct __sk_buff *skb) {
+	struct chain *cur = (struct chain *)skb->cb;
+	cur->hops[0] = cur->hops[1];
+	cur->hops[1] = cur->hops[2];
+	cur->hops[2] = 0;
+	u16 next_module = chain_module(cur);
+	// end of chain
+	if (next_module) {
+		modules.call(skb, next_module);
+	}
+
+	bpf_trace_printk("pop %d\n", next_module);
+	return TC_ACT_SHOT;
+}
 `
 
 var wrapperC string = `
-BPF_TABLE("extern", int, struct metadata, metadata, 8);
-BPF_TABLE("prog", int, int, modules, 3);
+BPF_TABLE("extern", int, struct metadata, metadata, NUMCPUS);
+BPF_TABLE("extern", int, int, modules, MAX_MODULES);
+BPF_TABLE("array", int, struct chain, forward_chain, MAX_INTERFACES);
+
+static void forward(struct __sk_buff *skb, int out_ifc) {
+	struct chain *cur = (struct chain *)skb->cb;
+	struct chain *next = forward_chain.lookup(&out_ifc);
+	if (next) {
+		cur->hops[0] = chain_ifc(next);
+		cur->hops[1] = next->hops[1];
+		cur->hops[2] = next->hops[2];
+		//bpf_trace_printk("fwd:%d=0x%x %d\n", out_ifc, next->hops[0], chain_module(next));
+		modules.call(skb, chain_module(next));
+	}
+	//bpf_trace_printk("fwd:%d=0\n", out_ifc);
+}
 
 #ifdef RX_WRAPPER
 int handle_rx_wrapper(struct __sk_buff *skb) {
-	int md_id = skb->cb[0];
-	struct metadata *md = metadata.lookup(&md_id);
-	if (!md) {
-		bpf_trace_printk("rx: metadata lookup failed\n");
-		return TC_ACT_SHOT;
-	}
-	// copy to stack in cases llvm spills map pointers to stack
-	//struct metadata local_md = *md;
-	//local_md.flags = 0;
-	//local_md.redir_ifc = 0;
-	//local_md.clone_ifc = 0;
-	//md->flags = 0;
-	md->clone_ifc = 0;
+	//bpf_trace_printk("" MODULE_UUID_SHORT ": rx:%d\n", skb->cb[0]);
+	struct metadata md = {};
+	md.in_ifc = skb->cb[0];
 
-	int rc = handle_rx(skb, md);
+	int rc = handle_rx(skb, &md);
 
 	// TODO: implementation
 	switch (rc) {
@@ -226,14 +278,15 @@ int handle_rx_wrapper(struct __sk_buff *skb) {
 			break;
 		case RX_REDIRECT:
 			break;
-		case RX_RECIRCULATE:
-			modules.call(skb, 1);
-			break;
+		//case RX_RECIRCULATE:
+		//	modules.call(skb, 1);
+		//	break;
 		case RX_DROP:
 			return TC_ACT_SHOT;
 	}
 	//metadata.update(&md_id, &local_md);
-	modules.call(skb, 0);
+	forward(skb, md.redir_ifc);
+
 	return TC_ACT_SHOT;
 }
 #endif

@@ -34,13 +34,13 @@ func NewHandlePool(size uint) *HandlePool {
 	handles.InPlaceUnion(handles.Complement())
 	return handles
 }
-func (handles *HandlePool) Acquire() (uint, error) {
+func (handles *HandlePool) Acquire() uint {
 	handle, ok := handles.NextSet(0)
 	if !ok {
-		return 0, fmt.Errorf("HandlePool: pool empty")
+		panic(fmt.Errorf("HandlePool: pool empty"))
 	}
 	handles.Clear(handle)
-	return handle + 1, nil
+	return handle + 1
 }
 func (handles *HandlePool) Release(handle uint) {
 	handles.Set(handle - 1)
