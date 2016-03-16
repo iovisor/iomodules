@@ -31,14 +31,14 @@ enum {
 struct chain {
 	u32 hops[3];
 };
-static inline u16 chain_ifc(struct chain *c) {
-	return c->hops[0] >> 16;
+static inline u16 chain_ifc(struct chain *c, int id) {
+	return c->hops[id] >> 16;
 }
-static inline bool chain_direction(struct chain *c) {
-	return (c->hops[0] >> 15) & 0x1;
+static inline bool chain_direction(struct chain *c, int id) {
+	return (c->hops[id] >> 15) & 0x1;
 }
-static inline u16 chain_module(struct chain *c) {
-	return c->hops[0] & 0x7fff;
+static inline u16 chain_module(struct chain *c, int id) {
+	return c->hops[id] & 0x7fff;
 }
 
 struct type_value {
@@ -210,16 +210,15 @@ int recv_tailcall(struct __sk_buff *skb) {
 
 int chain_pop(struct __sk_buff *skb) {
 	struct chain *cur = (struct chain *)skb->cb;
-	cur->hops[0] = cur->hops[1];
+	struct chain orig = *cur;
+	cur->hops[0] = chain_ifc(&orig, 1);
 	cur->hops[1] = cur->hops[2];
 	cur->hops[2] = 0;
-	u16 next_module = chain_module(cur);
-	// end of chain
-	if (next_module) {
-		modules.call(skb, next_module);
+	if (cur->hops[0]) {
+		modules.call(skb, chain_module(&orig, 1));
 	}
 
-	bpf_trace_printk("pop %d\n", next_module);
+	bpf_trace_printk("pop empty\n");
 	return TC_ACT_SHOT;
 }
 `
@@ -233,11 +232,11 @@ static void forward(struct __sk_buff *skb, int out_ifc) {
 	struct chain *cur = (struct chain *)skb->cb;
 	struct chain *next = forward_chain.lookup(&out_ifc);
 	if (next) {
-		cur->hops[0] = chain_ifc(next);
+		cur->hops[0] = chain_ifc(next, 0);
 		cur->hops[1] = next->hops[1];
 		cur->hops[2] = next->hops[2];
-		//bpf_trace_printk("fwd:%d=0x%x %d\n", out_ifc, next->hops[0], chain_module(next));
-		modules.call(skb, chain_module(next));
+		//bpf_trace_printk("fwd:%d=0x%x %d\n", out_ifc, next->hops[0], chain_module(next, 0));
+		modules.call(skb, chain_module(next, 0));
 	}
 	//bpf_trace_printk("fwd:%d=0\n", out_ifc);
 }

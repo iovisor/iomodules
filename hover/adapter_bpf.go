@@ -322,17 +322,6 @@ func (ifc *BpfInterface) Name() string {
 	return ifc.name
 }
 
-func (adapter *BpfAdapter) AcquireInterface(name string) (ifc Interface, err error) {
-	handle := adapter.interfaces.Acquire()
-	ifc = &BpfInterface{id: int(handle), name: name}
-	return
-}
-
-func (adapter *BpfAdapter) ReleaseInterface(ifc Interface) error {
-	adapter.interfaces.Release(uint(ifc.ID()))
-	return nil
-}
-
 func (adapter *BpfAdapter) Interfaces() <-chan Interface {
 	ch := make(chan Interface)
 	close(ch)

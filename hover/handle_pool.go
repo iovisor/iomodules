@@ -1,4 +1,4 @@
-// Copyright 2015 PLUMgrid
+// Copyright 2015-2016 PLUMgrid
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// vim: set ts=8:sts=8:sw=8:noet
-
 package hover
 
 import (
@@ -26,6 +24,7 @@ type HandlePool struct {
 	bitset.BitSet
 }
 
+// NewHandlePool returns a new handle pool with size entries available.
 func NewHandlePool(size uint) *HandlePool {
 	handles := &HandlePool{}
 	// make sure ids is big enough, triggers extendSetMaybe
@@ -34,14 +33,18 @@ func NewHandlePool(size uint) *HandlePool {
 	handles.InPlaceUnion(handles.Complement())
 	return handles
 }
-func (handles *HandlePool) Acquire() uint {
+
+// Acquire returns the lowest available id in the pool, or error if exhausted.
+func (handles *HandlePool) Acquire() (int, error) {
 	handle, ok := handles.NextSet(0)
 	if !ok {
-		panic(fmt.Errorf("HandlePool: pool empty"))
+		return -1, fmt.Errorf("HandlePool: pool empty")
 	}
 	handles.Clear(handle)
-	return handle + 1
+	return int(handle + 1), nil
 }
-func (handles *HandlePool) Release(handle uint) {
-	handles.Set(handle - 1)
+
+// Release returns the id back into the pool
+func (handles *HandlePool) Release(handle int) {
+	handles.Set(uint(handle - 1))
 }

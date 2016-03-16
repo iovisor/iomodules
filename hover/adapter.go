@@ -67,8 +67,6 @@ type Adapter interface {
 	Perm() uint
 	Config() map[string]interface{}
 	SetConfig(map[string]interface{}) error
-	AcquireInterface(name string) (Interface, error)
-	ReleaseInterface(ifc Interface) error
 	Interfaces() <-chan Interface
 	InterfaceByName(name string) Interface
 	Tables() []map[string]interface{}

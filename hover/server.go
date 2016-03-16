@@ -432,18 +432,24 @@ func (s *HoverServer) handleLinkPost(r *http.Request) routeResponse {
 	if s.g.HasEdgeBetween(fromNode, toNode) {
 		panic(fmt.Errorf("Link already exists between %q and %q", fromNode, toNode))
 	}
-	fromID := fromNode.NewInterfaceID()
+	fromID, err := fromNode.NewInterfaceID()
+	if err != nil {
+		panic(err)
+	}
 	if fromNode.ID() < 0 {
 		fromNode.SetID(s.g.NewNodeID())
 		s.g.AddNode(fromNode)
 	}
-	toID := toNode.NewInterfaceID()
+	toID, err := toNode.NewInterfaceID()
+	if err != nil {
+		panic(err)
+	}
 	if toNode.ID() < 0 {
 		toNode.SetID(s.g.NewNodeID())
 		s.g.AddNode(toNode)
 	}
-	s.g.SetEdge(Edge{fromNode, toNode, [3]uint{toID<<16 | uint(toNode.ID())}, fromID, toID})
-	s.g.SetEdge(Edge{toNode, fromNode, [3]uint{fromID<<16 | uint(fromNode.ID())}, toID, fromID})
+	s.g.SetEdge(Edge{fromNode, toNode, [3]int{toID<<16 | toNode.ID()}, fromID, toID})
+	s.g.SetEdge(Edge{toNode, fromNode, [3]int{fromID<<16 | fromNode.ID()}, toID, fromID})
 	s.recomputePolicies()
 	//id, err := s.patchPanel.Connect(adapters[0], adapters[1], req.Interfaces[0], req.Interfaces[1])
 	//if err != nil {

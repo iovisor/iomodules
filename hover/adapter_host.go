@@ -97,18 +97,6 @@ func (adapter *HostAdapter) InterfaceByName(name string) Interface {
 		name: link.Attrs().Name,
 	}
 }
-func (adapter *HostAdapter) AcquireInterface(name string) (ifc Interface, err error) {
-	link, err := netlink.LinkByName(name)
-	if err != nil {
-		return
-	}
-	ifc = &HostInterface{id: link.Attrs().Index, name: link.Attrs().Name}
-	return
-}
-
-func (adapter *HostAdapter) ReleaseInterface(ifc Interface) error {
-	return nil
-}
 
 func (adapter *HostAdapter) Tables() []map[string]interface{} {
 	return []map[string]interface{}{}

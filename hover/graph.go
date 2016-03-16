@@ -31,8 +31,8 @@ type Node interface {
 	ShortPath() string
 	DOTID() string
 	SetID(id int)
-	NewInterfaceID() uint
-	ReleaseInterfaceID(id uint)
+	NewInterfaceID() (int, error)
+	ReleaseInterfaceID(id int)
 }
 
 type AdapterNode struct {
@@ -54,25 +54,25 @@ func (n *AdapterNode) Path() string      { return "modules/" + n.adapter.UUID() 
 func (n *AdapterNode) ShortPath() string { return "m/" + n.adapter.UUID()[:8] }
 func (n *AdapterNode) SetID(id int)      { n.adapter.SetID(id) }
 
-func (n *AdapterNode) NewInterfaceID() uint {
+func (n *AdapterNode) NewInterfaceID() (int, error) {
 	return n.handles.Acquire()
 }
-func (n *AdapterNode) ReleaseInterfaceID(id uint) {
+func (n *AdapterNode) ReleaseInterfaceID(id int) {
 	n.handles.Release(id)
 }
 
 type Edge struct {
 	F, T     Node
-	W        [3]uint
-	FID, TID uint
+	W        [3]int
+	FID, TID int
 }
 
 func (e Edge) From() graph.Node { return e.F }
 func (e Edge) To() graph.Node   { return e.T }
 func (e Edge) Weight() float64  { return float64(e.W[0]) }
-func (e Edge) Chain() [3]uint   { return e.W }
-func (e Edge) FromID() uint     { return e.FID }
-func (e Edge) ToID() uint       { return e.TID }
+func (e Edge) Chain() [3]int    { return e.W }
+func (e Edge) FromID() int      { return e.FID }
+func (e Edge) ToID() int        { return e.TID }
 
 type Graph interface {
 	graph.DirectedBuilder

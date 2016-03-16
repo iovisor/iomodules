@@ -69,20 +69,20 @@ func (ifc *ExtInterface) FD() int {
 	return ifc.fd
 }
 
-func (ifc *ExtInterface) ID() int                    { return ifc.id }
-func (ifc *ExtInterface) DOTID() string              { return fmt.Sprintf("%q", ifc.ShortPath()) }
-func (ifc *ExtInterface) Link() netlink.Link         { return ifc.link }
-func (ifc *ExtInterface) Path() string               { return "external_interfaces/" + ifc.link.Attrs().Name }
-func (ifc *ExtInterface) ShortPath() string          { return "e/" + ifc.link.Attrs().Name }
-func (ifc *ExtInterface) SetID(id int)               { ifc.id = id }
-func (ifc *ExtInterface) NewInterfaceID() uint       { return ifc.handles.Acquire() }
-func (ifc *ExtInterface) ReleaseInterfaceID(id uint) { ifc.handles.Release(id) }
+func (ifc *ExtInterface) ID() int                      { return ifc.id }
+func (ifc *ExtInterface) DOTID() string                { return fmt.Sprintf("%q", ifc.ShortPath()) }
+func (ifc *ExtInterface) Link() netlink.Link           { return ifc.link }
+func (ifc *ExtInterface) Path() string                 { return "external_interfaces/" + ifc.link.Attrs().Name }
+func (ifc *ExtInterface) ShortPath() string            { return "e/" + ifc.link.Attrs().Name }
+func (ifc *ExtInterface) SetID(id int)                 { ifc.id = id }
+func (ifc *ExtInterface) NewInterfaceID() (int, error) { return ifc.handles.Acquire() }
+func (ifc *ExtInterface) ReleaseInterfaceID(id int)    { ifc.handles.Release(id) }
 
 type IngressChain struct {
 	fd int
 }
 
-func NewIngressChain(chain [3]uint) (*IngressChain, error) {
+func NewIngressChain(chain [3]int) (*IngressChain, error) {
 	cflags := []string{
 		fmt.Sprintf("-DCHAIN_VALUE0=0x%x", chain[0]),
 		fmt.Sprintf("-DCHAIN_VALUE1=0x%x", chain[1]),
