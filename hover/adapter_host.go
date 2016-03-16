@@ -48,7 +48,6 @@ func (adapter *HostAdapter) SetConfig(config map[string]interface{}) error {
 func (adapter *HostAdapter) Config() map[string]interface{} { return adapter.config }
 func (adapter *HostAdapter) FD() int                        { return -1 }
 func (adapter *HostAdapter) UUID() string                   { return adapter.uuid }
-func (adapter *HostAdapter) Handle(handler Handler) uint    { return 0 }
 func (adapter *HostAdapter) Init() error                    { return nil }
 func (adapter *HostAdapter) Close()                         {}
 

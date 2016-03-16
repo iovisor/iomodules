@@ -216,18 +216,13 @@ func (bpf *BpfModule) TableIter() <-chan map[string]interface{} {
 }
 
 type BpfAdapter struct {
-	uuid         string
-	handles      [HandlerMax]uint
-	name         string
-	tags         []string
-	perm         uint
-	hasRxHandler bool
-	hasTxHandler bool
-	config       map[string]interface{}
-	bpf          *BpfModule
-	patchPanel   *PatchPanel
-	interfaces   *HandlePool
-	fd           int
+	uuid   string
+	name   string
+	tags   []string
+	perm   uint
+	config map[string]interface{}
+	bpf    *BpfModule
+	fd     int
 }
 
 func (adapter *BpfAdapter) Type() string   { return "bpf" }
@@ -237,7 +232,6 @@ func (adapter *BpfAdapter) Perm() uint     { return adapter.perm }
 
 func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {
 	var code, fullCode string
-	var handlers []interface{}
 	for k, v := range config {
 		switch strings.ToLower(k) {
 		case "code":
@@ -247,29 +241,9 @@ func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {
 			}
 			code = val
 			fullCode = strings.Join([]string{iomoduleH, wrapperC, val}, "\n")
-		case "handlers":
-			val, ok := v.([]interface{})
-			if !ok {
-				return fmt.Errorf("Expected handlers argument to be an array")
-			}
-			handlers = val
 		}
 	}
 	cflags := []string{"-DMODULE_UUID_SHORT=\"" + adapter.uuid[:8] + "\""}
-	for _, v := range handlers {
-		handler, ok := v.(string)
-		if !ok {
-			return fmt.Errorf("Expected handler to be a string")
-		}
-		switch handler {
-		case "handle_rx":
-			cflags = append(cflags, "-DRX_WRAPPER")
-			adapter.hasRxHandler = true
-		case "handle_tx":
-			cflags = append(cflags, "-DTX_WRAPPER")
-			adapter.hasTxHandler = true
-		}
-	}
 
 	adapter.bpf = NewBpfModule(fullCode, cflags)
 	if adapter.bpf == nil {
@@ -285,7 +259,6 @@ func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {
 
 func (adapter *BpfAdapter) Config() map[string]interface{} { return adapter.config }
 func (adapter *BpfAdapter) UUID() string                   { return adapter.uuid }
-func (adapter *BpfAdapter) Handle(handler Handler) uint    { return adapter.handles[handler] }
 func (adapter *BpfAdapter) FD() int                        { return adapter.fd }
 
 func (adapter *BpfAdapter) Init() error {

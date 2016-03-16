@@ -212,7 +212,7 @@ func (s *HoverServer) handleModulePost(r *http.Request) routeResponse {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
 	}
-	adapter, err := NewAdapter(&req, s.patchPanel)
+	adapter, err := NewAdapter(&req)
 	if err != nil {
 		panic(err)
 	}
