@@ -26,6 +26,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"testing"
@@ -405,9 +406,11 @@ func testOne(t *testing.T, test testCase, rsp interface{}) {
 	resp.Body.Close()
 	if err != nil {
 		t.Fatal(err)
+		debug.PrintStack()
 	}
 	if resp.StatusCode != test.code {
 		t.Fatalf("Expected %d, got %d", test.code, resp.StatusCode)
+		debug.PrintStack()
 	}
 	if rsp != nil {
 		if err := json.Unmarshal(body, rsp); err != nil {

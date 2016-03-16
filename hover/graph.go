@@ -22,6 +22,7 @@ import (
 	"github.com/gonum/graph"
 	"github.com/gonum/graph/encoding/dot"
 	"github.com/gonum/graph/simple"
+	"github.com/gonum/graph/traverse"
 )
 
 type Node interface {
@@ -78,12 +79,20 @@ type Graph interface {
 	graph.DirectedBuilder
 	graph.NodeRemover
 	Degree(graph.Node) int
-	Node(int) graph.Node
+	Node(int) Node
+}
+
+type DirectedGraph struct {
+	simple.DirectedGraph
 }
 
 func NewGraph() Graph {
-	return simple.NewDirectedGraph(0, math.Inf(1))
+	return &DirectedGraph{
+		DirectedGraph: *simple.NewDirectedGraph(0, math.Inf(1)),
+	}
 }
+
+func (g *DirectedGraph) Node(id int) Node { return g.DirectedGraph.Node(id).(Node) }
 
 func DumpDotFile(g Graph) {
 	b, err := dot.Marshal(g, "dump", "", "  ", true)
@@ -94,5 +103,27 @@ func DumpDotFile(g Graph) {
 	err = ioutil.WriteFile("/tmp/hover.dot", b, 0644)
 	if err != nil {
 		Error.Println(err)
+	}
+}
+
+func NewDepthFirst(visit func(u, v Node), filter func(e Edge) bool) *traverse.DepthFirst {
+	return &traverse.DepthFirst{
+		Visit: func(u, v graph.Node) {
+			visit(u.(Node), v.(Node))
+		},
+		EdgeFilter: func(e graph.Edge) bool {
+			return filter(e.(Edge))
+		},
+	}
+}
+
+func NewBreadthFirst(visit func(u, v Node), filter func(e Edge) bool) *traverse.BreadthFirst {
+	return &traverse.BreadthFirst{
+		Visit: func(u, v graph.Node) {
+			visit(u.(Node), v.(Node))
+		},
+		EdgeFilter: func(e graph.Edge) bool {
+			return filter(e.(Edge))
+		},
 	}
 }

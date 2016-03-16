@@ -397,7 +397,7 @@ func (s *HoverServer) lookupNode(nodePath string) Node {
 		if !ok {
 			panic(fmt.Errorf("Module %q not found", parts[1]))
 		}
-		return s.g.Node(adapter.ID()).(Node)
+		return s.g.Node(adapter.ID())
 	default:
 		panic(fmt.Errorf("Unknown node path prefix %q", parts[0]))
 	}

@@ -17,9 +17,6 @@ package hover
 import (
 	"fmt"
 	"strconv"
-
-	"github.com/gonum/graph"
-	"github.com/gonum/graph/traverse"
 )
 
 type Renderer struct {
@@ -29,22 +26,20 @@ func NewRenderer() *Renderer {
 	return &Renderer{}
 }
 
-func filterInterfaceNode(e graph.Edge) bool {
+func filterInterfaceNode(e Edge) bool {
 	_, ok := e.To().(InterfaceNode)
 	return !ok
 }
 
 func (h *Renderer) Provision(g Graph, pp *PatchPanel, hmon *HostMonitor) {
-	visitFn := func(u, v graph.Node) {
-		prev, this := u.(Node), v.(Node)
-		_ = prev
+	visitFn := func(prev, this Node) {
 		for i, n := range g.From(this) {
 			target := n.(Node)
 			pp.modules.Set(strconv.Itoa(i), strconv.Itoa(target.ID()))
 			Debug.Printf(" %s:%d -> %s:%d\n", this.Path(), i, target.Path(), target.ID())
 		}
 	}
-	t := &traverse.DepthFirst{Visit: visitFn, EdgeFilter: filterInterfaceNode}
+	t := NewDepthFirst(visitFn, filterInterfaceNode)
 	// Find all of the Adapter (internal) nodes reachable from an external interface.
 	// Collect the ID of each node and update the modules table.
 	for _, node := range hmon.Interfaces() {
@@ -56,8 +51,7 @@ func (h *Renderer) Provision(g Graph, pp *PatchPanel, hmon *HostMonitor) {
 }
 
 func (h *Renderer) Run(g Graph, pp *PatchPanel, hmon *HostMonitor) {
-	visitFn := func(u, v graph.Node) {
-		this := v.(Node)
+	visitFn := func(prev, this Node) {
 		pp.modules.Set(strconv.Itoa(this.ID()), strconv.Itoa(this.FD()))
 		Info.Printf("visit: %d :: %s\n", this.ID(), this.ShortPath())
 		for _, t := range g.From(this) {
@@ -77,7 +71,7 @@ func (h *Renderer) Run(g Graph, pp *PatchPanel, hmon *HostMonitor) {
 			//Debug.Printf(" %s:%d -> %s:%d\n", this.Path(), i, target.Path(), target.ID())
 		}
 	}
-	t := &traverse.DepthFirst{Visit: visitFn, EdgeFilter: filterInterfaceNode}
+	t := NewDepthFirst(visitFn, filterInterfaceNode)
 	// Find all of the Adapter (internal) nodes reachable from an external interface.
 	// Collect the ID of each node and update the modules table.
 	for _, node := range hmon.Interfaces() {
