@@ -51,8 +51,14 @@ func (h *Renderer) Provision(g Graph, pp *PatchPanel, hmon *HostMonitor) {
 }
 
 func (h *Renderer) Run(g Graph, pp *PatchPanel, hmon *HostMonitor) {
+	for _, node := range g.Nodes() {
+		if node, ok := node.(Node); ok {
+			pp.modules.Set(strconv.Itoa(node.ID()), strconv.Itoa(node.FD()))
+			Info.Printf("modules[%d] = %d\n", node.ID(), node.FD())
+		}
+	}
 	visitFn := func(prev, this Node) {
-		pp.modules.Set(strconv.Itoa(this.ID()), strconv.Itoa(this.FD()))
+		//pp.modules.Set(strconv.Itoa(this.ID()), strconv.Itoa(this.FD()))
 		Info.Printf("visit: %d :: %s\n", this.ID(), this.ShortPath())
 		for _, t := range g.From(this) {
 			e := g.E(this, t)

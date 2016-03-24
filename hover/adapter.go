@@ -16,25 +16,35 @@
 
 package hover
 
-func NewAdapter(req *createModuleRequest) (adapter Adapter, err error) {
+import (
+	"fmt"
+	"strings"
+)
+
+func NewAdapter(req createModuleRequest, g Graph, id int) (adapter Adapter, err error) {
 	uuid, err := NewUUID4()
 	if err != nil {
 		return
 	}
 
-	switch req.ModuleType {
+	parts := strings.SplitN(req.ModuleType, "/", 2)
+	switch parts[0] {
 	case "bpf":
 		a := &BpfAdapter{
-			uuid:   uuid,
-			name:   req.DisplayName,
-			tags:   req.Tags,
-			perm:   PermR | PermW,
-			config: make(map[string]interface{}),
+			uuid:    uuid,
+			name:    req.DisplayName,
+			tags:    req.Tags,
+			perm:    PermR | PermW,
+			config:  make(map[string]interface{}),
+			subtype: parts[1],
 		}
-		if err = a.SetConfig(req.Config); err != nil {
+		if err = a.SetConfig(req, g, id); err != nil {
 			return
 		}
 		adapter = a
+	default:
+		err = fmt.Errorf("unknown ModuleType %s", req.ModuleType)
+		return
 	}
 	return
 }
@@ -53,7 +63,7 @@ type Adapter interface {
 	Tags() []string
 	Perm() uint
 	Config() map[string]interface{}
-	SetConfig(map[string]interface{}) error
+	SetConfig(req createModuleRequest, g Graph, id int) error
 	Interfaces() <-chan Interface
 	InterfaceByName(name string) Interface
 	Tables() []map[string]interface{}

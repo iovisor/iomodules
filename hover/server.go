@@ -1,3 +1,17 @@
+// Copyright 2016 PLUMgrid
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // vim: set ts=8:sts=8:sw=8:noet
 
 package hover
@@ -12,6 +26,7 @@ import (
 
 	"github.com/gonum/graph"
 	"github.com/gonum/graph/traverse"
+	"golang.org/x/tools/container/intsets"
 )
 
 type routeResponse struct {
@@ -117,12 +132,9 @@ type createModuleRequest struct {
 	Config      map[string]interface{} `json:"config"`
 }
 type moduleEntry struct {
-	Id          string                 `json:"id"`
-	ModuleType  string                 `json:"module_type"`
-	DisplayName string                 `json:"display_name"`
-	Tags        []string               `json:"tags"`
-	Perm        string                 `json:"permissions"`
-	Config      map[string]interface{} `json:"config"`
+	createModuleRequest
+	Id   string `json:"id"`
+	Perm string `json:"permissions"`
 }
 
 type AdapterEntries map[string]*AdapterNode
@@ -144,12 +156,14 @@ func (a AdapterEntries) GetAll() []*moduleEntry {
 	result := []*moduleEntry{}
 	for _, node := range a {
 		result = append(result, &moduleEntry{
-			Id:          node.adapter.UUID(),
-			ModuleType:  node.adapter.Type(),
-			DisplayName: node.adapter.Name(),
-			Tags:        node.adapter.Tags(),
-			Config:      node.adapter.Config(),
-			Perm:        fmt.Sprintf("0%x00", node.adapter.Perm()),
+			createModuleRequest: createModuleRequest{
+				ModuleType:  node.adapter.Type(),
+				DisplayName: node.adapter.Name(),
+				Tags:        node.adapter.Tags(),
+				Config:      node.adapter.Config(),
+			},
+			Id:   node.adapter.UUID(),
+			Perm: fmt.Sprintf("0%x00", node.adapter.Perm()),
 		})
 	}
 	return result
@@ -165,12 +179,14 @@ func (a AdapterEntries) Get(id string) *moduleEntry {
 
 func adapterToModuleEntry(a Adapter) *moduleEntry {
 	return &moduleEntry{
-		Id:          a.UUID(),
-		ModuleType:  a.Type(),
-		DisplayName: a.Name(),
-		Tags:        a.Tags(),
-		Config:      a.Config(),
-		Perm:        fmt.Sprintf("0%x00", a.Perm()),
+		Id:   a.UUID(),
+		Perm: fmt.Sprintf("0%x00", a.Perm()),
+		createModuleRequest: createModuleRequest{
+			ModuleType:  a.Type(),
+			DisplayName: a.Name(),
+			Tags:        a.Tags(),
+			Config:      a.Config(),
+		},
 	}
 }
 
@@ -212,13 +228,14 @@ func (s *HoverServer) handleModulePost(r *http.Request) routeResponse {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
 	}
-	adapter, err := NewAdapter(&req)
+	id := s.g.NewNodeID()
+	adapter, err := NewAdapter(req, s.g, id)
 	if err != nil {
 		panic(err)
 	}
 	node := NewAdapterNode(adapter)
 	s.adapterEntries.Add(node)
-	node.SetID(s.g.NewNodeID())
+	node.SetID(id)
 	s.g.AddNode(node)
 	entry := adapterToModuleEntry(adapter)
 	return routeResponse{body: entry}
@@ -233,6 +250,20 @@ func (s *HoverServer) handleModuleGet(r *http.Request) routeResponse {
 	return routeResponse{body: entry}
 }
 func (s *HoverServer) handleModulePut(r *http.Request) routeResponse {
+	var req moduleEntry
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		panic(err)
+	}
+	id := getRequestVar(r, "moduleId")
+	node, ok := s.adapterEntries[id]
+	if !ok {
+		return notFound()
+	}
+
+	if err := node.adapter.SetConfig(req.createModuleRequest, s.g, node.ID()); err != nil {
+		panic(err)
+	}
+
 	return routeResponse{}
 }
 func (s *HoverServer) handleModuleDelete(r *http.Request) routeResponse {
@@ -243,6 +274,7 @@ func (s *HoverServer) handleModuleDelete(r *http.Request) routeResponse {
 	}
 	node.adapter.Close()
 	delete(s.adapterEntries, id)
+	s.g.RemoveNode(node)
 	return routeResponse{}
 }
 
@@ -321,16 +353,19 @@ func (s *HoverServer) handleModuleTableEntryGet(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
 	node, ok := s.adapterEntries[id]
 	if !ok {
+		Warn.Printf("Module %s not found\n", id)
 		return notFound()
 	}
 	name := getRequestVar(r, "tableId")
 	tbl := node.adapter.Table(name)
 	if tbl == nil {
+		Warn.Printf("Module %s table %s not found\n", id, name)
 		return notFound()
 	}
 	entryId := getRequestVar(r, "entryId")
 	entry, ok := tbl.Get(entryId)
 	if !ok {
+		Warn.Printf("Module %s table %s entry %s not found\n", id, name, entryId)
 		return notFound()
 	}
 	return routeResponse{body: entry}
@@ -383,7 +418,7 @@ func (s *HoverServer) lookupNode(nodePath string) Node {
 		panic(fmt.Errorf("Malformed node path %q\n", nodePath))
 	}
 	switch parts[0] {
-	case "e", "external_interfaces":
+	case "i", "external_interfaces":
 		node, err := s.hmon.InterfaceByName(parts[1])
 		if err != nil {
 			panic(err)
@@ -419,34 +454,104 @@ func (s *HoverServer) handleLinkList(r *http.Request) routeResponse {
 	return routeResponse{body: edges}
 }
 
+func computeChain(from, to Node) (fromto []int, tofrom []int, err error) {
+	// For a new link, there is a chain in each direction to be computed and downloaded.
+	// Every link is specified as from:to, but we also implicitly create to:from.
+	//
+	// To compute the chain in each direction, the following algorithm is followed:
+	//  Let T and F represent the set of groups for the 'to' and 'from' nodes, respectively.
+	//  The leaving set L is the set difference between F and T.
+	//  L := F - T
+	//  The entering set E is the set difference between T and F
+	//  E := T - F
+	//
+	// For the link from:to, the chain is built as follows:
+	//  For each module e in E, invoke the ingress policy (e.ifc[1])
+	//  For each module l in L, invoke the egress policy (l.ifc[2])
+	// For the link to:from, the chain is build as follows (reversed of above):
+	//  For each module l in L, invoke the ingress policy (l.ifc[1])
+	//  For each module e in E, invoke the egress policy (e.ifc[2])
+
+	var e, l intsets.Sparse
+	l.Difference(from.Groups(), to.Groups())
+	e.Difference(to.Groups(), from.Groups())
+
+	if (e.Len() + l.Len()) > 2 {
+		err = fmt.Errorf("Too many policies between %s and %s", from, to)
+		return
+	}
+
+	var x intsets.Sparse
+	var id int
+
+	x.Copy(&e)
+	for x.TakeMin(&id) {
+		fromto = append(fromto, 1<<16|id)
+	}
+	x.Copy(&l)
+	for x.TakeMin(&id) {
+		fromto = append(fromto, 2<<16|id)
+	}
+
+	x.Copy(&l)
+	for x.TakeMin(&id) {
+		tofrom = append(tofrom, 1<<16|id)
+	}
+	x.Copy(&e)
+	for x.TakeMin(&id) {
+		tofrom = append(tofrom, 2<<16|id)
+	}
+	return
+}
+
 func (s *HoverServer) handleLinkPost(r *http.Request) routeResponse {
 	var req linkEntry
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
 	}
-	fromNode := s.lookupNode(req.From)
-	toNode := s.lookupNode(req.To)
-	if s.g.HasEdgeBetween(fromNode, toNode) {
-		panic(fmt.Errorf("Link already exists between %q and %q", fromNode, toNode))
+	from := s.lookupNode(req.From)
+	to := s.lookupNode(req.To)
+	if s.g.HasEdgeBetween(from, to) {
+		panic(fmt.Errorf("Link already exists between %q and %q", from, to))
 	}
-	fromID, err := fromNode.NewInterfaceID()
+
+	fromto, tofrom, err := computeChain(from, to)
 	if err != nil {
 		panic(err)
 	}
-	if fromNode.ID() < 0 {
-		fromNode.SetID(s.g.NewNodeID())
-		s.g.AddNode(fromNode)
-	}
-	toID, err := toNode.NewInterfaceID()
+
+	fromID, err := from.NewInterfaceID()
 	if err != nil {
 		panic(err)
 	}
-	if toNode.ID() < 0 {
-		toNode.SetID(s.g.NewNodeID())
-		s.g.AddNode(toNode)
+
+	toID, err := to.NewInterfaceID()
+	if err != nil {
+		from.ReleaseInterfaceID(fromID)
+		panic(err)
 	}
-	s.g.SetEdge(EdgeChain{fromNode, toNode, [3]int{toID<<16 | toNode.ID()}, fromID, toID})
-	s.g.SetEdge(EdgeChain{toNode, fromNode, [3]int{fromID<<16 | fromNode.ID()}, toID, fromID})
+
+	if from.ID() < 0 {
+		from.SetID(s.g.NewNodeID())
+		s.g.AddNode(from)
+	}
+	if to.ID() < 0 {
+		to.SetID(s.g.NewNodeID())
+		s.g.AddNode(to)
+	}
+
+	fromto = append(fromto, toID<<16|to.ID())
+	tofrom = append(tofrom, fromID<<16|from.ID())
+	var fromto2, tofrom2 [3]int
+	for i, x := range fromto {
+		fromto2[i] = x
+	}
+	for i, x := range tofrom {
+		tofrom2[i] = x
+	}
+	Info.Printf("fromto(%d.%d):%x, tofrom(%d.%d):%x\n", from.ID(), fromID, fromto2, to.ID(), toID, tofrom2)
+	s.g.SetEdge(EdgeChain{from, to, fromto2, fromID, toID})
+	s.g.SetEdge(EdgeChain{to, from, tofrom2, toID, fromID})
 	s.recomputePolicies()
 	return routeResponse{}
 }
@@ -460,7 +565,7 @@ func (s *HoverServer) handleLinkGet(r *http.Request) routeResponse {
 	return routeResponse{}
 }
 func (s *HoverServer) handleLinkPut(r *http.Request) routeResponse {
-	return routeResponse{}
+	return notFound()
 }
 func (s *HoverServer) handleLinkDelete(r *http.Request) routeResponse {
 	return routeResponse{}

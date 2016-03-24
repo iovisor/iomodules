@@ -1,4 +1,4 @@
-// Copyright 2015 PLUMgrid
+// Copyright 2015-2016 PLUMgrid
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -146,7 +146,7 @@ func (bpf *BpfModule) load(name string, progType int) (int, error) {
 	license := C.bpf_module_license(bpf.p)
 	version := C.bpf_module_kern_version(bpf.p)
 	if start == nil {
-		return -1, fmt.Errorf("BpfModule: unable to find handle_rx_wrapper")
+		return -1, fmt.Errorf("BpfModule: unable to find %s", name)
 	}
 	logbuf := make([]byte, 65536)
 	logbufP := (*C.char)(unsafe.Pointer(&logbuf[0]))
@@ -216,13 +216,14 @@ func (bpf *BpfModule) TableIter() <-chan map[string]interface{} {
 }
 
 type BpfAdapter struct {
-	uuid   string
-	name   string
-	tags   []string
-	perm   uint
-	config map[string]interface{}
-	bpf    *BpfModule
-	fd     int
+	uuid    string
+	name    string
+	tags    []string
+	perm    uint
+	config  map[string]interface{}
+	bpf     *BpfModule
+	fd      int
+	subtype string
 }
 
 func (adapter *BpfAdapter) Type() string   { return "bpf" }
@@ -230,9 +231,9 @@ func (adapter *BpfAdapter) Name() string   { return adapter.name }
 func (adapter *BpfAdapter) Tags() []string { return adapter.tags }
 func (adapter *BpfAdapter) Perm() uint     { return adapter.perm }
 
-func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {
+func (adapter *BpfAdapter) SetConfig(req createModuleRequest, g Graph, id int) error {
 	var code, fullCode string
-	for k, v := range config {
+	for k, v := range req.Config {
 		switch strings.ToLower(k) {
 		case "code":
 			val, ok := v.(string)
@@ -245,15 +246,30 @@ func (adapter *BpfAdapter) SetConfig(config map[string]interface{}) error {
 	}
 	cflags := []string{"-DMODULE_UUID_SHORT=\"" + adapter.uuid[:8] + "\""}
 
-	adapter.bpf = NewBpfModule(fullCode, cflags)
-	if adapter.bpf == nil {
-		return fmt.Errorf("Could not load bpf code, check server log for details")
+	if orig, ok := adapter.config["code"]; ok {
+		if orig != code {
+			return fmt.Errorf("BPF code update not supported")
+		}
+	} else {
+		adapter.bpf = NewBpfModule(fullCode, cflags)
+		if adapter.bpf == nil {
+			return fmt.Errorf("Could not load bpf code, check server log for details")
+		}
+		if err := adapter.Init(); err != nil {
+			adapter.Close()
+			return err
+		}
+		adapter.config["code"] = code
 	}
-	if err := adapter.Init(); err != nil {
-		adapter.Close()
-		return err
+	switch {
+	case adapter.subtype == "policy":
+		for _, tag := range adapter.tags {
+			if node := g.NodeByPath(tag); node != nil {
+				node.Groups().Insert(id)
+			}
+		}
+	case adapter.subtype == "forward":
 	}
-	adapter.config["code"] = code
 	return nil
 }
 

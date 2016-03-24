@@ -23,45 +23,47 @@ import (
 	"github.com/gonum/graph/encoding/dot"
 	"github.com/gonum/graph/simple"
 	"github.com/gonum/graph/traverse"
+	"golang.org/x/tools/container/intsets"
 )
 
 type Node interface {
 	graph.Node
 	FD() int
+	String() string
 	Path() string
 	ShortPath() string
 	DOTID() string
 	SetID(id int)
 	NewInterfaceID() (int, error)
 	ReleaseInterfaceID(id int)
+	Groups() *intsets.Sparse
 }
 
 type AdapterNode struct {
 	adapter Adapter
 	id      int
 	handles *HandlePool
+	groups  *intsets.Sparse
 }
 
 func NewAdapterNode(adapter Adapter) *AdapterNode {
 	return &AdapterNode{
 		adapter: adapter,
 		handles: NewHandlePool(MAX_INTERFACES),
+		groups:  &intsets.Sparse{},
 	}
 }
 
-func (n *AdapterNode) ID() int           { return n.id }
-func (n *AdapterNode) FD() int           { return n.adapter.FD() }
-func (n *AdapterNode) DOTID() string     { return fmt.Sprintf("%q", n.ShortPath()) }
-func (n *AdapterNode) Path() string      { return "modules/" + n.adapter.UUID() }
-func (n *AdapterNode) ShortPath() string { return "m/" + n.adapter.UUID()[:8] }
-func (n *AdapterNode) SetID(id int)      { n.id = id }
-
-func (n *AdapterNode) NewInterfaceID() (int, error) {
-	return n.handles.Acquire()
-}
-func (n *AdapterNode) ReleaseInterfaceID(id int) {
-	n.handles.Release(id)
-}
+func (n *AdapterNode) ID() int                      { return n.id }
+func (n *AdapterNode) FD() int                      { return n.adapter.FD() }
+func (n *AdapterNode) DOTID() string                { return fmt.Sprintf("%q", n.ShortPath()) }
+func (n *AdapterNode) Path() string                 { return "modules/" + n.adapter.UUID() }
+func (n *AdapterNode) ShortPath() string            { return "m/" + n.adapter.UUID()[:8] }
+func (n *AdapterNode) SetID(id int)                 { n.id = id }
+func (n *AdapterNode) NewInterfaceID() (int, error) { return n.handles.Acquire() }
+func (n *AdapterNode) ReleaseInterfaceID(id int)    { n.handles.Release(id) }
+func (n *AdapterNode) Groups() *intsets.Sparse      { return n.groups }
+func (n *AdapterNode) String() string               { return n.ShortPath() }
 
 type Edge interface {
 	graph.Edge
@@ -93,20 +95,47 @@ type Graph interface {
 	Degree(graph.Node) int
 	Node(int) Node
 	E(u, v graph.Node) Edge
+	HasPath(path string) bool
+	NodeByPath(path string) Node
 }
 
 type DirectedGraph struct {
 	simple.DirectedGraph
+	paths map[string]int
 }
 
 func NewGraph() Graph {
 	return &DirectedGraph{
 		DirectedGraph: *simple.NewDirectedGraph(0, math.Inf(1)),
+		paths:         make(map[string]int),
 	}
 }
 
 func (g *DirectedGraph) Node(id int) Node       { return g.DirectedGraph.Node(id).(Node) }
 func (g *DirectedGraph) E(u, v graph.Node) Edge { return g.Edge(u, v).(Edge) }
+
+func (g *DirectedGraph) NodeByPath(path string) Node {
+	if id, ok := g.paths[path]; ok {
+		return g.DirectedGraph.Node(id).(Node)
+	}
+	return nil
+}
+
+func (g *DirectedGraph) HasPath(path string) bool {
+	if id, ok := g.paths[path]; ok {
+		return g.Has(simple.Node(id))
+	}
+	return false
+}
+
+func (g *DirectedGraph) AddNode(node graph.Node) {
+	g.DirectedGraph.AddNode(node)
+	g.paths[node.(Node).ShortPath()] = node.ID()
+}
+func (g *DirectedGraph) RemoveNode(node graph.Node) {
+	g.DirectedGraph.RemoveNode(node)
+	delete(g.paths, node.(Node).ShortPath())
+}
 
 func DumpDotFile(g Graph) {
 	b, err := dot.Marshal(g, "dump", "", "  ", true)

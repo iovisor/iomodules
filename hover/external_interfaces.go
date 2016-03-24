@@ -21,6 +21,7 @@ import (
 	"syscall"
 
 	"github.com/vishvananda/netlink"
+	"golang.org/x/tools/container/intsets"
 )
 
 type InterfaceNode interface {
@@ -77,6 +78,8 @@ func (ifc *ExtInterface) ShortPath() string            { return "e/" + ifc.link.
 func (ifc *ExtInterface) SetID(id int)                 { ifc.id = id }
 func (ifc *ExtInterface) NewInterfaceID() (int, error) { return ifc.handles.Acquire() }
 func (ifc *ExtInterface) ReleaseInterfaceID(id int)    { ifc.handles.Release(id) }
+func (ifc *ExtInterface) Groups() *intsets.Sparse      { return &intsets.Sparse{} }
+func (ifc *ExtInterface) String() string               { return ifc.ShortPath() }
 
 type IngressChain struct {
 	fd int

@@ -84,18 +84,19 @@ static int pkt_drop(void *pkt, struct metadata *md);
 var netdevRxC string = `
 BPF_TABLE("extern", int, int, modules, MAX_MODULES);
 int ingress(struct __sk_buff *skb) {
-	//bpf_trace_printk("ingress %d\n", skb->ifindex);
+	bpf_trace_printk("ingress %d %x\n", skb->ifindex, CHAIN_VALUE0);
 	skb->cb[0] = CHAIN_VALUE0 >> 16;
 	skb->cb[1] = CHAIN_VALUE1;
 	skb->cb[2] = CHAIN_VALUE2;
 	modules.call(skb, CHAIN_VALUE0 & 0x7fff);
+	bpf_trace_printk("ingress drop\n");
 	return 2;
 }
 `
 
 var netdevTxC string = `
 int egress(struct __sk_buff *skb) {
-	//bpf_trace_printk("egress %d\n", INTERFACE_ID);
+	bpf_trace_printk("egress %d\n", INTERFACE_ID);
 	bpf_redirect(INTERFACE_ID, 0);
 	return 7;
 }
@@ -235,14 +236,28 @@ static void forward(struct __sk_buff *skb, int out_ifc) {
 		cur->hops[0] = chain_ifc(next, 0);
 		cur->hops[1] = next->hops[1];
 		cur->hops[2] = next->hops[2];
-		//bpf_trace_printk("fwd:%d=0x%x %d\n", out_ifc, next->hops[0], chain_module(next, 0));
+		bpf_trace_printk("fwd:%d=0x%x %d\n", out_ifc, next->hops[0], chain_module(next, 0));
 		modules.call(skb, chain_module(next, 0));
 	}
-	//bpf_trace_printk("fwd:%d=0\n", out_ifc);
+	bpf_trace_printk("fwd:%d=0\n", out_ifc);
+}
+
+static int chain_pop(struct __sk_buff *skb) {
+	struct chain *cur = (struct chain *)skb->cb;
+	struct chain orig = *cur;
+	cur->hops[0] = chain_ifc(&orig, 1);
+	cur->hops[1] = cur->hops[2];
+	cur->hops[2] = 0;
+	if (cur->hops[0]) {
+		modules.call(skb, chain_module(&orig, 1));
+	}
+
+	bpf_trace_printk("pop empty\n");
+	return TC_ACT_SHOT;
 }
 
 int handle_rx_wrapper(struct __sk_buff *skb) {
-	//bpf_trace_printk("" MODULE_UUID_SHORT ": rx:%d\n", skb->cb[0]);
+	bpf_trace_printk("" MODULE_UUID_SHORT ": rx:%d\n", skb->cb[0]);
 	struct metadata md = {};
 	md.in_ifc = skb->cb[0];
 
@@ -251,7 +266,7 @@ int handle_rx_wrapper(struct __sk_buff *skb) {
 	// TODO: implementation
 	switch (rc) {
 		case RX_OK:
-			break;
+			return chain_pop(skb);
 		case RX_REDIRECT:
 			break;
 		//case RX_RECIRCULATE:

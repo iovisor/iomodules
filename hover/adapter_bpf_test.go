@@ -67,18 +67,17 @@ static int handle_rx(void *pkt, struct metadata *md) {
 `
 
 	policyC = `
-BPF_TABLE("array", int, u64, counters, 10);
+BPF_TABLE("array", int, u64, counters, 2);
 static void incr(int counter) {
 	u64 *val = counters.lookup(&counter);
 	if (val)
 		++(*val);
 }
 static int handle_rx(void *pkt, struct metadata *md) {
-	incr(0);
-	return RX_OK;
-}
-static int handle_tx(void *pkt, struct metadata *md) {
-	incr(1);
+	if (md->in_ifc == 1) // ingress
+		incr(0);
+	else if (md->in_ifc == 2) // egress
+		incr(1);
 	return RX_OK;
 }
 `
@@ -91,14 +90,19 @@ type testCase struct {
 	code   int       // expected pass criteria
 }
 
-func wrapCode(body string, handlers, tags []string) io.Reader {
+func wrapCode(body string, tags []string) io.Reader {
+	return newCodeReader(body, "bpf/forward", "test", tags)
+}
+func wrapCodePolicy(body string, tags []string) io.Reader {
+	return newCodeReader(body, "bpf/policy", "policy", tags)
+}
+func newCodeReader(body string, modtype string, name string, tags []string) io.Reader {
 	req := &createModuleRequest{
-		ModuleType:  "bpf",
-		DisplayName: "test",
+		ModuleType:  modtype,
+		DisplayName: name,
 		Tags:        tags,
 		Config: map[string]interface{}{
-			"code":     body,
-			"handlers": handlers,
+			"code": body,
 		},
 	}
 	b, err := json.Marshal(req)
@@ -126,17 +130,17 @@ func TestModuleCreate(t *testing.T) {
 	testValues := []testCase{
 		{
 			url:  srv.URL + "/modules/",
-			body: wrapCode(trivialC, []string{"handle_rx"}, []string{}),
+			body: wrapCode(trivialC, []string{}),
 			code: http.StatusOK,
 		},
 		{
 			url:  srv.URL + "/modules/",
-			body: wrapCode(errorC, []string{"handle_rx"}, []string{}),
+			body: wrapCode(errorC, []string{}),
 			code: http.StatusBadRequest,
 		},
 		{
 			url:  srv.URL + "/modules/",
-			body: wrapCode(syntaxErrorC, []string{"handle_rx"}, []string{}),
+			body: wrapCode(syntaxErrorC, []string{}),
 			code: http.StatusBadRequest,
 		},
 	}
@@ -155,19 +159,19 @@ func TestModuleConnect(t *testing.T) {
 	var t1, t2 moduleEntry
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
-		body: wrapCode(trivialC, []string{"handle_rx"}, []string{}),
+		body: wrapCode(trivialC, []string{}),
 		code: http.StatusOK,
 	}, &t1)
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
-		body: wrapCode(trivialC, []string{"handle_rx"}, []string{}),
+		body: wrapCode(trivialC, []string{}),
 		code: http.StatusOK,
 	}, &t2)
 	testOne(t, testCase{
 		url: srv.URL + "/links/",
 		body: wrapObject(map[string]interface{}{
-			"from": "modules/" + t1.Id,
-			"to":   "modules/" + t2.Id,
+			"from": "m/" + t1.Id,
+			"to":   "m/" + t2.Id,
 		}),
 		code: http.StatusOK,
 	}, nil)
@@ -201,21 +205,21 @@ func TestModuleRedirect(t *testing.T) {
 	var t1, t2 moduleEntry
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
-		body: wrapCode(redirectC, []string{"handle_rx"}, []string{}),
+		body: wrapCode(redirectC, []string{}),
 		code: http.StatusOK,
 	}, &t1)
 
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
-		body: wrapCode(redirectC, []string{"handle_rx"}, []string{}),
+		body: wrapCode(redirectC, []string{}),
 		code: http.StatusOK,
 	}, &t2)
 
 	testOne(t, testCase{
 		url: srv.URL + "/links/",
 		body: wrapObject(map[string]interface{}{
-			"from": "modules/" + t1.Id,
-			"to":   "external_interfaces/" + l1.Name,
+			"from": "m/" + t1.Id,
+			"to":   "i/" + l1.Name,
 		}),
 		code: http.StatusOK,
 	}, nil)
@@ -223,8 +227,8 @@ func TestModuleRedirect(t *testing.T) {
 	testOne(t, testCase{
 		url: srv.URL + "/links/",
 		body: wrapObject(map[string]interface{}{
-			"from": "modules/" + t1.Id,
-			"to":   "modules/" + t2.Id,
+			"from": "m/" + t1.Id,
+			"to":   "m/" + t2.Id,
 		}),
 		code: http.StatusOK,
 	}, nil)
@@ -232,8 +236,8 @@ func TestModuleRedirect(t *testing.T) {
 	testOne(t, testCase{
 		url: srv.URL + "/links/",
 		body: wrapObject(map[string]interface{}{
-			"from": "external_interfaces/" + l2.Name,
-			"to":   "modules/" + t2.Id,
+			"from": "i/" + l2.Name,
+			"to":   "m/" + t2.Id,
 		}),
 		code: http.StatusOK,
 	}, nil)
@@ -304,29 +308,49 @@ func TestModulePolicy(t *testing.T) {
 	}
 	defer netlink.LinkDel(l2)
 
+	var t1, t2 moduleEntry
+
 	testOne(t, testCase{
-		url: srv.URL + "/links/",
-		body: wrapObject(map[string]interface{}{
-			"from": "external_interfaces/" + l1.Name,
-			"to":   "external_interfaces/" + l2.Name,
-		}),
+		url:  srv.URL + "/modules/",
+		body: wrapCode(redirectC, []string{"zone/red"}),
+		code: http.StatusOK,
+	}, &t2)
+	Info.Printf("Forward module id=%s\n", t2.Id[:8])
+
+	testOne(t, testCase{
+		url:  srv.URL + "/modules/",
+		body: wrapCodePolicy(policyC, []string{"m/" + t2.Id[:8]}),
+		code: http.StatusOK,
+	}, &t1)
+	Info.Printf("Policy module id=%s\n", t1.Id[:8])
+	testOne(t, testCase{
+		url:  srv.URL + fmt.Sprintf("/modules/%s/tables/redirect/entries/", t2.Id),
+		body: strings.NewReader(`{ "key": "1", "value": "2" }`),
 		code: http.StatusOK,
 	}, nil)
 
-	var t1 moduleEntry
 	testOne(t, testCase{
-		url:  srv.URL + "/modules/",
-		body: wrapCode(policyC, []string{"handle_rx", "handle_tx"}, []string{}),
+		url:  srv.URL + fmt.Sprintf("/modules/%s/tables/redirect/entries/", t2.Id),
+		body: strings.NewReader(`{ "key": "2", "value": "1" }`),
 		code: http.StatusOK,
-	}, &t1)
-	var pol policyEntry
+	}, nil)
+
 	testOne(t, testCase{
-		url: srv.URL + "/modules/host/interfaces/" + l1.Name + "/policies/",
+		url: srv.URL + "/links/",
 		body: wrapObject(map[string]interface{}{
-			"module": t1.Id,
+			"from": "i/" + l1.Name,
+			"to":   "m/" + t2.Id,
 		}),
 		code: http.StatusOK,
-	}, &pol)
+	}, nil)
+	testOne(t, testCase{
+		url: srv.URL + "/links/",
+		body: wrapObject(map[string]interface{}{
+			"from": "m/" + t2.Id,
+			"to":   "i/" + l2.Name,
+		}),
+		code: http.StatusOK,
+	}, nil)
 
 	var wg sync.WaitGroup
 	go RunInNs(testns1, func() error {
@@ -359,27 +383,6 @@ func TestModulePolicy(t *testing.T) {
 	if c2.Key != "0x1" || c2.Value == "0x0" {
 		t.Fatalf("Expected counter 1 != 0, got %s", c2.Value)
 	}
-
-	var policies []*policyEntry
-	testOne(t, testCase{
-		url:    srv.URL + "/modules/host/interfaces/" + l1.Name + "/policies/",
-		body:   nil,
-		method: "GET",
-		code:   http.StatusOK,
-	}, &policies)
-	if len(policies) != 1 {
-		t.Fatalf("Expected len(policies) %d != 1", len(policies))
-	}
-	for _, p := range policies {
-		Debug.Printf("id=%s, module=%s\n", p.Id, p.Module)
-	}
-
-	testOne(t, testCase{
-		url:    srv.URL + "/modules/host/interfaces/" + l1.Name + "/policies/" + pol.Id,
-		body:   nil,
-		method: "DELETE",
-		code:   http.StatusOK,
-	}, nil)
 }
 
 func testOne(t *testing.T, test testCase, rsp interface{}) {
