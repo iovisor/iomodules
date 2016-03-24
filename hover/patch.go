@@ -36,7 +36,6 @@ import "C"
 
 type PatchPanel struct {
 	adapter *BpfAdapter
-	chainFd int
 	modules AdapterTable
 	kv      store.Store
 }
@@ -55,8 +54,7 @@ func NewPatchPanel() (pp *PatchPanel, err error) {
 		return
 	}
 	pp = &PatchPanel{
-		chainFd: -1,
-		kv:      kv,
+		kv: kv,
 	}
 	defer func() {
 		if err != nil {
@@ -81,10 +79,6 @@ func NewPatchPanel() (pp *PatchPanel, err error) {
 		return
 	}
 	Debug.Printf("Patch panel modules table loaded: %v\n", pp.modules.Config())
-	pp.chainFd, err = pp.adapter.bpf.LoadNet("chain_pop")
-	if err != nil {
-		return
-	}
 	return
 }
 
@@ -92,10 +86,6 @@ func (p *PatchPanel) Close() {
 	if p.adapter != nil {
 		p.adapter.Close()
 	}
-}
-
-func (p *PatchPanel) FD() int {
-	return p.chainFd
 }
 
 func ensureQdisc(link netlink.Link) (netlink.Qdisc, error) {

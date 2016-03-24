@@ -454,7 +454,7 @@ func (s *HoverServer) handleLinkList(r *http.Request) routeResponse {
 	return routeResponse{body: edges}
 }
 
-func computeChain(from, to Node) (fromto []int, tofrom []int, err error) {
+func computeChain(from, to Node) (fromto []int, tofrom []int) {
 	// For a new link, there is a chain in each direction to be computed and downloaded.
 	// Every link is specified as from:to, but we also implicitly create to:from.
 	//
@@ -475,11 +475,6 @@ func computeChain(from, to Node) (fromto []int, tofrom []int, err error) {
 	var e, l intsets.Sparse
 	l.Difference(from.Groups(), to.Groups())
 	e.Difference(to.Groups(), from.Groups())
-
-	if (e.Len() + l.Len()) > 2 {
-		err = fmt.Errorf("Too many policies between %s and %s", from, to)
-		return
-	}
 
 	var x intsets.Sparse
 	var id int
@@ -515,10 +510,7 @@ func (s *HoverServer) handleLinkPost(r *http.Request) routeResponse {
 		panic(fmt.Errorf("Link already exists between %q and %q", from, to))
 	}
 
-	fromto, tofrom, err := computeChain(from, to)
-	if err != nil {
-		panic(err)
-	}
+	fromto, tofrom := computeChain(from, to)
 
 	fromID, err := from.NewInterfaceID()
 	if err != nil {
@@ -542,16 +534,19 @@ func (s *HoverServer) handleLinkPost(r *http.Request) routeResponse {
 
 	fromto = append(fromto, toID<<16|to.ID())
 	tofrom = append(tofrom, fromID<<16|from.ID())
-	var fromto2, tofrom2 [3]int
+	if len(fromto) > 3 || len(tofrom) > 3 {
+		panic(fmt.Errorf("Too many policies between %s and %s", from, to))
+	}
+	var ft, tf [3]int
 	for i, x := range fromto {
-		fromto2[i] = x
+		ft[i] = x
 	}
 	for i, x := range tofrom {
-		tofrom2[i] = x
+		tf[i] = x
 	}
-	Info.Printf("fromto(%d.%d):%x, tofrom(%d.%d):%x\n", from.ID(), fromID, fromto2, to.ID(), toID, tofrom2)
-	s.g.SetEdge(EdgeChain{from, to, fromto2, fromID, toID})
-	s.g.SetEdge(EdgeChain{to, from, tofrom2, toID, fromID})
+	Debug.Printf("fromto(%d.%d):%x, tofrom(%d.%d):%x\n", from.ID(), fromID, ft, to.ID(), toID, tf)
+	s.g.SetEdge(EdgeChain{from, to, ft, fromID, toID})
+	s.g.SetEdge(EdgeChain{to, from, tf, toID, fromID})
 	s.recomputePolicies()
 	return routeResponse{}
 }
