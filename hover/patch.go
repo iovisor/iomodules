@@ -21,9 +21,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/docker/libkv"
-	"github.com/docker/libkv/store"
-	"github.com/docker/libkv/store/boltdb"
 	"github.com/vishvananda/netlink"
 )
 
@@ -37,7 +34,6 @@ import "C"
 type PatchPanel struct {
 	adapter *BpfAdapter
 	modules AdapterTable
-	kv      store.Store
 }
 
 func NewPatchPanel() (pp *PatchPanel, err error) {
@@ -47,15 +43,11 @@ func NewPatchPanel() (pp *PatchPanel, err error) {
 		return
 	}
 
-	boltdb.Register()
-	kv, err := libkv.NewStore(store.BOLTDB, []string{"/tmp/hover.db"}, &store.Config{Bucket: "patch"})
 	if err != nil {
 		Warn.Print(err)
 		return
 	}
-	pp = &PatchPanel{
-		kv: kv,
-	}
+	pp = &PatchPanel{}
 	defer func() {
 		if err != nil {
 			pp.Close()
