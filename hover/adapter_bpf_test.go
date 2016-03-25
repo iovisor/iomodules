@@ -312,7 +312,7 @@ func TestModulePolicy(t *testing.T) {
 
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
-		body: wrapCode(redirectC, []string{"zone/red"}),
+		body: wrapCode(redirectC, []string{}),
 		code: http.StatusOK,
 	}, &t2)
 	Info.Printf("Forward module id=%s\n", t2.Id[:8])

@@ -30,13 +30,17 @@ func NewAdapter(req createModuleRequest, g Graph, id int) (adapter Adapter, err 
 	parts := strings.SplitN(req.ModuleType, "/", 2)
 	switch parts[0] {
 	case "bpf":
+		var subtype string
+		if len(parts) > 1 {
+			subtype = parts[1]
+		}
 		a := &BpfAdapter{
 			uuid:    uuid,
 			name:    req.DisplayName,
 			tags:    req.Tags,
 			perm:    PermR | PermW,
 			config:  make(map[string]interface{}),
-			subtype: parts[1],
+			subtype: subtype,
 		}
 		if err = a.SetConfig(req, g, id); err != nil {
 			return

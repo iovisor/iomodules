@@ -276,10 +276,11 @@ DONE:
 }
 
 static int handle_rx(void *skb, struct metadata *md) {
-	return handle_any(skb, md, DIRECTION_OUT);
-}
-static int handle_tx(void *skb, struct metadata *md) {
-	return handle_any(skb, md, DIRECTION_IN);
+	if (md->in_ifc == 1)
+		return handle_any(skb, md, DIRECTION_IN);
+	else if (md->in_ifc == 2)
+		return handle_any(skb, md, DIRECTION_OUT);
+	return RX_OK;
 }
 `
 
@@ -335,8 +336,7 @@ func (d *Dataplane) Init(baseUrl string) error {
 		"module_type":  "bpf",
 		"display_name": "dnsmon",
 		"config": map[string]interface{}{
-			"code":     filterImplC,
-			"handlers": []string{"handle_rx", "handle_tx"},
+			"code": filterImplC,
 		},
 	}
 	var module moduleEntry

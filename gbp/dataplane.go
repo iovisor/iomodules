@@ -41,7 +41,7 @@ struct match {
 };
 BPF_TABLE("hash", struct match, int, rules, 1024);
 
-static int handle_tx(void *skb, struct metadata *md) {
+static int handle_egress(void *skb, struct metadata *md) {
 	u8 *cursor = 0;
 	struct match m = {};
 	int ret = RX_DROP;
@@ -129,7 +129,7 @@ DONE:
 	return ret;
 }
 
-static int handle_rx(void *skb, struct metadata *md) {
+static int handle_ingress(void *skb, struct metadata *md) {
 	u8 *cursor = 0;
 	u32 src_tag = 0;
 	int ret = RX_OK;
@@ -171,6 +171,14 @@ DONE:
 	}
 
 	return ret;
+}
+
+static int handle_rx(void *skb, struct metadata *md) {
+	if (md->in_ifc == 1)
+		return handle_ingress(skb, md);
+	else if (md->in_ifc == 2)
+		return handle_egress(skb, md);
+	return RX_OK;
 }
 `
 
@@ -239,8 +247,7 @@ func (d *Dataplane) Init(baseUrl string) error {
 		"module_type":  "bpf",
 		"display_name": "gbp",
 		"config": map[string]interface{}{
-			"code":     filterImplC,
-			"handlers": []string{"handle_rx", "handle_tx"},
+			"code": filterImplC,
 		},
 	}
 	var module moduleEntry
