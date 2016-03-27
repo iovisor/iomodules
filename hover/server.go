@@ -40,7 +40,7 @@ type HoverServer struct {
 	adapterEntries AdapterEntries
 	patchPanel     *PatchPanel
 	g              Graph
-	hmon           *HostMonitor
+	nlmon          *NetlinkMonitor
 	renderer       *Renderer
 }
 
@@ -208,7 +208,7 @@ func (s *HoverServer) Init() (err error) {
 	if err != nil {
 		return
 	}
-	s.hmon, err = NewHostMonitor(s.g)
+	s.nlmon, err = NewNetlinkMonitor(s.g)
 	if err != nil {
 		return
 	}
@@ -420,7 +420,7 @@ func (s *HoverServer) lookupNode(nodePath string) Node {
 	}
 	switch parts[0] {
 	case "i", "external_interfaces":
-		node, err := s.hmon.InterfaceByName(parts[1])
+		node, err := s.nlmon.InterfaceByName(parts[1])
 		if err != nil {
 			panic(err)
 		}
@@ -449,7 +449,7 @@ func (s *HoverServer) handleLinkList(r *http.Request) routeResponse {
 		edges = append(edges, linkEntry{e.From().(Node).Path(), e.To().(Node).Path()})
 	}
 	t := &traverse.BreadthFirst{Visit: visitFn}
-	for _, node := range s.hmon.Interfaces() {
+	for _, node := range s.nlmon.Interfaces() {
 		t.Walk(s.g, node, nil)
 	}
 	return routeResponse{body: edges}
@@ -553,8 +553,8 @@ func (s *HoverServer) handleLinkPost(r *http.Request) routeResponse {
 }
 
 func (s *HoverServer) recomputePolicies() {
-	s.hmon.EnsureInterfaces(s.g, s.patchPanel)
-	s.renderer.Run(s.g, s.patchPanel, s.hmon)
+	s.nlmon.EnsureInterfaces(s.g, s.patchPanel)
+	s.renderer.Run(s.g, s.patchPanel, s.nlmon)
 	DumpDotFile(s.g)
 }
 func (s *HoverServer) handleLinkGet(r *http.Request) routeResponse {
@@ -606,7 +606,7 @@ func (s *HoverServer) handleModuleInterfaceGet(r *http.Request) routeResponse {
 
 func (s *HoverServer) handleExternalInterfaceList(r *http.Request) routeResponse {
 	var interfaces []interfaceEntry
-	for _, ifc := range s.hmon.Interfaces() {
+	for _, ifc := range s.nlmon.Interfaces() {
 		interfaces = append(interfaces, interfaceEntry{
 			Id:   fmt.Sprintf("%d", ifc.Link().Attrs().Index),
 			Name: ifc.Link().Attrs().Name,

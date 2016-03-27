@@ -31,7 +31,7 @@ func filterInterfaceNode(e Edge) bool {
 	return !ok
 }
 
-func (h *Renderer) Provision(g Graph, pp *PatchPanel, hmon *HostMonitor) {
+func (h *Renderer) Provision(g Graph, pp *PatchPanel, nlmon *NetlinkMonitor) {
 	visitFn := func(prev, this Node) {
 		for i, n := range g.From(this) {
 			target := n.(Node)
@@ -42,7 +42,7 @@ func (h *Renderer) Provision(g Graph, pp *PatchPanel, hmon *HostMonitor) {
 	t := NewDepthFirst(visitFn, filterInterfaceNode)
 	// Find all of the Adapter (internal) nodes reachable from an external interface.
 	// Collect the ID of each node and update the modules table.
-	for _, node := range hmon.Interfaces() {
+	for _, node := range nlmon.Interfaces() {
 		if !g.Has(node) {
 			continue
 		}
@@ -50,7 +50,7 @@ func (h *Renderer) Provision(g Graph, pp *PatchPanel, hmon *HostMonitor) {
 	}
 }
 
-func (h *Renderer) Run(g Graph, pp *PatchPanel, hmon *HostMonitor) {
+func (h *Renderer) Run(g Graph, pp *PatchPanel, nlmon *NetlinkMonitor) {
 	for _, node := range g.Nodes() {
 		if node, ok := node.(Node); ok {
 			pp.modules.Set(strconv.Itoa(node.ID()), strconv.Itoa(node.FD()))
@@ -80,7 +80,7 @@ func (h *Renderer) Run(g Graph, pp *PatchPanel, hmon *HostMonitor) {
 	t := NewDepthFirst(visitFn, filterInterfaceNode)
 	// Find all of the Adapter (internal) nodes reachable from an external interface.
 	// Collect the ID of each node and update the modules table.
-	for _, node := range hmon.Interfaces() {
+	for _, node := range nlmon.Interfaces() {
 		if node.ID() < 0 {
 			continue
 		}
