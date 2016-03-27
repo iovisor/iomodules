@@ -264,7 +264,8 @@ func (s *HoverServer) handleModulePut(r *http.Request) routeResponse {
 		panic(err)
 	}
 
-	return routeResponse{}
+	entry := adapterToModuleEntry(node.adapter)
+	return routeResponse{body: entry}
 }
 func (s *HoverServer) handleModuleDelete(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")

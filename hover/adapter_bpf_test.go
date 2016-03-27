@@ -24,7 +24,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"os/exec"
 	"runtime/debug"
 	"strings"
@@ -90,12 +89,16 @@ type testCase struct {
 	code   int       // expected pass criteria
 }
 
+// wrapCode creates a reader object to encapsulate a program in json
 func wrapCode(body string, tags []string) io.Reader {
 	return newCodeReader(body, "bpf/forward", "test", tags)
 }
+
+// wrapCode creates a reader object to encapsulate a program in json
 func wrapCodePolicy(body string, tags []string) io.Reader {
 	return newCodeReader(body, "bpf/policy", "policy", tags)
 }
+
 func newCodeReader(body string, modtype string, name string, tags []string) io.Reader {
 	req := &createModuleRequest{
 		ModuleType:  modtype,
@@ -120,18 +123,37 @@ func wrapObject(body interface{}) io.Reader {
 	return bytes.NewReader(b)
 }
 
-func TestModuleCreate(t *testing.T) {
-	os.Remove("/tmp/hover.db")
+func testSetup(t *testing.T) (*httptest.Server, func()) {
+	//os.Remove("/tmp/hover.db")
 	s := NewServer()
-	defer s.Close()
+	if s == nil {
+		t.Fatal("Could not start Hover server")
+	}
 	srv := httptest.NewServer(s.Handler())
-	defer srv.Close()
+	return srv, func() {
+		s.Close()
+		srv.Close()
+	}
+}
+
+func testLinkModules(t *testing.T, srv *httptest.Server, from, to string) {
+	testOne(t, testCase{
+		url: srv.URL + "/links/",
+		body: wrapObject(map[string]interface{}{
+			"from": from,
+			"to":   to,
+		}),
+	}, nil)
+}
+
+func TestModuleCreate(t *testing.T) {
+	srv, cleanup := testSetup(t)
+	defer cleanup()
 
 	testValues := []testCase{
 		{
 			url:  srv.URL + "/modules/",
 			body: wrapCode(trivialC, []string{}),
-			code: http.StatusOK,
 		},
 		{
 			url:  srv.URL + "/modules/",
@@ -150,39 +172,31 @@ func TestModuleCreate(t *testing.T) {
 }
 
 func TestModuleConnect(t *testing.T) {
-	os.Remove("/tmp/hover.db")
-	s := NewServer()
-	defer s.Close()
-	srv := httptest.NewServer(s.Handler())
-	defer srv.Close()
+	srv, cleanup := testSetup(t)
+	defer cleanup()
 
 	var t1, t2 moduleEntry
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
 		body: wrapCode(trivialC, []string{}),
-		code: http.StatusOK,
 	}, &t1)
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
 		body: wrapCode(trivialC, []string{}),
-		code: http.StatusOK,
 	}, &t2)
+	testLinkModules(t, srv, "m/"+t1.Id, "m/"+t2.Id)
+}
+
+func testSetTableEntry(t *testing.T, srv *httptest.Server, modId, tblName string, k, v interface{}) {
 	testOne(t, testCase{
-		url: srv.URL + "/links/",
-		body: wrapObject(map[string]interface{}{
-			"from": "m/" + t1.Id,
-			"to":   "m/" + t2.Id,
-		}),
-		code: http.StatusOK,
+		url:  srv.URL + fmt.Sprintf("/modules/%s/tables/%s/entries/", modId, tblName),
+		body: strings.NewReader(fmt.Sprintf(`{"key":"%v","value":"%v"}`, k, v)),
 	}, nil)
 }
 
 func TestModuleRedirect(t *testing.T) {
-	os.Remove("/tmp/hover.db")
-	s := NewServer()
-	defer s.Close()
-	srv := httptest.NewServer(s.Handler())
-	defer srv.Close()
+	srv, cleanup := testSetup(t)
+	defer cleanup()
 
 	// ns1 <-> redir1 <-> redir2 <-> ns2
 
@@ -206,64 +220,21 @@ func TestModuleRedirect(t *testing.T) {
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
 		body: wrapCode(redirectC, []string{}),
-		code: http.StatusOK,
 	}, &t1)
 
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
 		body: wrapCode(redirectC, []string{}),
-		code: http.StatusOK,
 	}, &t2)
 
-	testOne(t, testCase{
-		url: srv.URL + "/links/",
-		body: wrapObject(map[string]interface{}{
-			"from": "m/" + t1.Id,
-			"to":   "i/" + l1.Name,
-		}),
-		code: http.StatusOK,
-	}, nil)
+	testLinkModules(t, srv, "m/"+t1.Id, "i/"+l1.Name)
+	testLinkModules(t, srv, "m/"+t1.Id, "m/"+t2.Id)
+	testLinkModules(t, srv, "i/"+l2.Name, "m/"+t2.Id)
 
-	testOne(t, testCase{
-		url: srv.URL + "/links/",
-		body: wrapObject(map[string]interface{}{
-			"from": "m/" + t1.Id,
-			"to":   "m/" + t2.Id,
-		}),
-		code: http.StatusOK,
-	}, nil)
-
-	testOne(t, testCase{
-		url: srv.URL + "/links/",
-		body: wrapObject(map[string]interface{}{
-			"from": "i/" + l2.Name,
-			"to":   "m/" + t2.Id,
-		}),
-		code: http.StatusOK,
-	}, nil)
-
-	testOne(t, testCase{
-		url:  srv.URL + fmt.Sprintf("/modules/%s/tables/redirect/entries/", t1.Id),
-		body: strings.NewReader(`{ "key": "1", "value": "2" }`),
-		code: http.StatusOK,
-	}, nil)
-
-	testOne(t, testCase{
-		url:  srv.URL + fmt.Sprintf("/modules/%s/tables/redirect/entries/", t1.Id),
-		body: strings.NewReader(`{ "key": "2", "value": "1" }`),
-		code: http.StatusOK,
-	}, nil)
-	testOne(t, testCase{
-		url:  srv.URL + fmt.Sprintf("/modules/%s/tables/redirect/entries/", t2.Id),
-		body: strings.NewReader(`{ "key": "1", "value": "2" }`),
-		code: http.StatusOK,
-	}, nil)
-
-	testOne(t, testCase{
-		url:  srv.URL + fmt.Sprintf("/modules/%s/tables/redirect/entries/", t2.Id),
-		body: strings.NewReader(`{ "key": "2", "value": "1" }`),
-		code: http.StatusOK,
-	}, nil)
+	testSetTableEntry(t, srv, t1.Id, "redirect", 1, 2)
+	testSetTableEntry(t, srv, t1.Id, "redirect", 2, 1)
+	testSetTableEntry(t, srv, t2.Id, "redirect", 1, 2)
+	testSetTableEntry(t, srv, t2.Id, "redirect", 2, 1)
 	var wg sync.WaitGroup
 	go RunInNs(testns1, func() error {
 		defer wg.Done()
@@ -283,14 +254,8 @@ type policyEntry struct {
 }
 
 func TestModulePolicy(t *testing.T) {
-	os.Remove("/tmp/hover.db")
-	s := NewServer()
-	if s == nil {
-		t.Fatalf("Could not start Hover")
-	}
-	defer s.Close()
-	srv := httptest.NewServer(s.Handler())
-	defer srv.Close()
+	srv, cleanup := testSetup(t)
+	defer cleanup()
 
 	testns1 := NewNs()
 	defer testns1.Close()
@@ -313,44 +278,20 @@ func TestModulePolicy(t *testing.T) {
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
 		body: wrapCode(redirectC, []string{}),
-		code: http.StatusOK,
 	}, &t2)
 	Info.Printf("Forward module id=%s\n", t2.Id[:8])
 
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
 		body: wrapCodePolicy(policyC, []string{"m/" + t2.Id[:8]}),
-		code: http.StatusOK,
 	}, &t1)
 	Info.Printf("Policy module id=%s\n", t1.Id[:8])
-	testOne(t, testCase{
-		url:  srv.URL + fmt.Sprintf("/modules/%s/tables/redirect/entries/", t2.Id),
-		body: strings.NewReader(`{ "key": "1", "value": "2" }`),
-		code: http.StatusOK,
-	}, nil)
 
-	testOne(t, testCase{
-		url:  srv.URL + fmt.Sprintf("/modules/%s/tables/redirect/entries/", t2.Id),
-		body: strings.NewReader(`{ "key": "2", "value": "1" }`),
-		code: http.StatusOK,
-	}, nil)
+	testSetTableEntry(t, srv, t2.Id, "redirect", 1, 2)
+	testSetTableEntry(t, srv, t2.Id, "redirect", 2, 1)
 
-	testOne(t, testCase{
-		url: srv.URL + "/links/",
-		body: wrapObject(map[string]interface{}{
-			"from": "i/" + l1.Name,
-			"to":   "m/" + t2.Id,
-		}),
-		code: http.StatusOK,
-	}, nil)
-	testOne(t, testCase{
-		url: srv.URL + "/links/",
-		body: wrapObject(map[string]interface{}{
-			"from": "m/" + t2.Id,
-			"to":   "i/" + l2.Name,
-		}),
-		code: http.StatusOK,
-	}, nil)
+	testLinkModules(t, srv, "i/"+l1.Name, "m/"+t2.Id)
+	testLinkModules(t, srv, "m/"+t2.Id, "i/"+l2.Name)
 
 	var wg sync.WaitGroup
 	go RunInNs(testns1, func() error {
@@ -369,7 +310,6 @@ func TestModulePolicy(t *testing.T) {
 		url:    srv.URL + "/modules/" + t1.Id + "/tables/counters/entries/0x0",
 		body:   nil,
 		method: "GET",
-		code:   http.StatusOK,
 	}, &c1)
 	if c1.Key != "0x0" || c1.Value == "0x0" {
 		t.Fatalf("Expected counter 1 != 0, got %s", c1.Value)
@@ -378,11 +318,17 @@ func TestModulePolicy(t *testing.T) {
 		url:    srv.URL + "/modules/" + t1.Id + "/tables/counters/entries/0x1",
 		body:   nil,
 		method: "GET",
-		code:   http.StatusOK,
 	}, &c2)
 	if c2.Key != "0x1" || c2.Value == "0x0" {
 		t.Fatalf("Expected counter 1 != 0, got %s", c2.Value)
 	}
+
+	// remove policy
+	testOne(t, testCase{
+		url:    srv.URL + "/modules/" + t1.Id,
+		body:   wrapCodePolicy(policyC, []string{}),
+		method: "PUT",
+	}, &t1)
 }
 
 func testOne(t *testing.T, test testCase, rsp interface{}) {
@@ -408,12 +354,15 @@ func testOne(t *testing.T, test testCase, rsp interface{}) {
 	body, err := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
 	if err != nil {
-		t.Fatal(err)
 		debug.PrintStack()
+		t.Fatal(err)
+	}
+	if test.code == 0 {
+		test.code = http.StatusOK
 	}
 	if resp.StatusCode != test.code {
-		t.Fatalf("Expected %d, got %d", test.code, resp.StatusCode)
 		debug.PrintStack()
+		t.Fatalf("Expected %d, got %d :: %s", test.code, resp.StatusCode, string(body))
 	}
 	if rsp != nil {
 		if err := json.Unmarshal(body, rsp); err != nil {
