@@ -77,8 +77,15 @@ func (nm *NetlinkMonitor) Close() {
 func (nm *NetlinkMonitor) handleNewlink(link netlink.Link) {
 	nm.mtx.Lock()
 	defer nm.mtx.Unlock()
-	if _, ok := nm.nodes[link.Attrs().Index]; !ok {
-		nm.nodes[link.Attrs().Index] = NewExtInterface(link)
+	switch link := link.(type) {
+	case *netlink.Bridge:
+		//id := nm.g.NewNodeID()
+		//node := NewBridgeNode(link, id)
+		//nm.g.AddNode(node)
+	default:
+		if _, ok := nm.nodes[link.Attrs().Index]; !ok {
+			nm.nodes[link.Attrs().Index] = NewExtInterface(link)
+		}
 	}
 }
 

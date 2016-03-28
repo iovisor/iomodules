@@ -572,38 +572,6 @@ type interfaceEntry struct {
 	Name string `json:"name"`
 }
 
-func (s *HoverServer) handleModuleInterfaceList(r *http.Request) routeResponse {
-	id := getRequestVar(r, "moduleId")
-	node, ok := s.adapterEntries[id]
-	if !ok {
-		return notFound()
-	}
-	interfaces := []*interfaceEntry{}
-	for ifc := range node.adapter.Interfaces() {
-		interfaces = append(interfaces, &interfaceEntry{
-			Id:   fmt.Sprintf("%d", ifc.ID()),
-			Name: ifc.Name(),
-		})
-	}
-	return routeResponse{body: interfaces}
-}
-func (s *HoverServer) handleModuleInterfaceGet(r *http.Request) routeResponse {
-	id := getRequestVar(r, "moduleId")
-	node, ok := s.adapterEntries[id]
-	if !ok {
-		return notFound()
-	}
-	ifcId := getRequestVar(r, "interfaceId")
-	ifc := node.adapter.InterfaceByName(ifcId)
-	if ifc == nil {
-		return notFound()
-	}
-	return routeResponse{body: &interfaceEntry{
-		Id:   fmt.Sprintf("%d", ifc.ID()),
-		Name: ifc.Name(),
-	}}
-}
-
 func (s *HoverServer) handleExternalInterfaceList(r *http.Request) routeResponse {
 	var interfaces []interfaceEntry
 	for _, ifc := range s.nlmon.Interfaces() {
@@ -653,10 +621,6 @@ func NewServer() *HoverServer {
 	mod.Methods("GET").Path("/{moduleId}").HandlerFunc(makeHandler(s.handleModuleGet))
 	mod.Methods("PUT").Path("/{moduleId}").HandlerFunc(makeHandler(s.handleModulePut))
 	mod.Methods("DELETE").Path("/{moduleId}").HandlerFunc(makeHandler(s.handleModuleDelete))
-
-	ifc := mod.PathPrefix("/{moduleId}/interfaces").Subrouter()
-	ifc.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleModuleInterfaceList))
-	ifc.Methods("GET").Path("/{interfaceId}").HandlerFunc(makeHandler(s.handleModuleInterfaceGet))
 
 	tbl := mod.PathPrefix("/{moduleId}/tables").Subrouter()
 	tbl.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleModuleTableList))

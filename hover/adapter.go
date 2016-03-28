@@ -46,6 +46,8 @@ func NewAdapter(req createModuleRequest, g Graph, id int) (adapter Adapter, err 
 			return
 		}
 		adapter = a
+	case "bridge":
+		//a := NewBridgeAdapter
 	default:
 		err = fmt.Errorf("unknown ModuleType %s", req.ModuleType)
 		return
@@ -68,8 +70,6 @@ type Adapter interface {
 	Perm() uint
 	Config() map[string]interface{}
 	SetConfig(req createModuleRequest, g Graph, id int) error
-	Interfaces() <-chan Interface
-	InterfaceByName(name string) Interface
 	Tables() []map[string]interface{}
 	Table(name string) AdapterTable
 }

@@ -99,30 +99,6 @@ func (adapter *BpfAdapter) Close() {
 	}
 }
 
-type BpfInterface struct {
-	id   int
-	name string
-}
-
-func (ifc *BpfInterface) ID() int {
-	return ifc.id
-}
-func (ifc *BpfInterface) Name() string {
-	if ifc.name == "" {
-		return fmt.Sprintf("%d", ifc.id)
-	}
-	return ifc.name
-}
-
-func (adapter *BpfAdapter) Interfaces() <-chan Interface {
-	ch := make(chan Interface)
-	close(ch)
-	return ch
-}
-func (adapter *BpfAdapter) InterfaceByName(name string) Interface {
-	return nil
-}
-
 func (adapter *BpfAdapter) Tables() []map[string]interface{} {
 	result := [](map[string]interface{}){}
 	for table := range adapter.bpf.TableIter() {
