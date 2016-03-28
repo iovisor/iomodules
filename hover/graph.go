@@ -36,6 +36,7 @@ type Node interface {
 	NewInterfaceID() (int, error)
 	ReleaseInterfaceID(id int)
 	Groups() *intsets.Sparse
+	Close()
 }
 
 type NodeBase struct {
@@ -66,6 +67,7 @@ func (n *NodeBase) String() string               { return n.Path() }
 func (n *NodeBase) Groups() *intsets.Sparse      { return n.groups }
 func (n *NodeBase) NewInterfaceID() (int, error) { return n.handles.Acquire() }
 func (n *NodeBase) ReleaseInterfaceID(id int)    { n.handles.Release(id) }
+func (n *NodeBase) Close()                       {}
 
 type AdapterNode struct {
 	NodeBase
@@ -73,13 +75,21 @@ type AdapterNode struct {
 }
 
 func NewAdapterNode(adapter Adapter) *AdapterNode {
+	var prefix string
+	switch adapter.(type) {
+	case *BridgeAdapter:
+		prefix = "b/"
+	default:
+		prefix = "m/"
+	}
 	return &AdapterNode{
-		NodeBase: NewNodeBase(-1, adapter.FD(), adapter.UUID(), "m/", MAX_INTERFACES),
+		NodeBase: NewNodeBase(-1, adapter.FD(), adapter.UUID(), prefix, MAX_INTERFACES),
 		adapter:  adapter,
 	}
 }
 
 func (n *AdapterNode) SetID(id int) { n.id = id }
+func (n *AdapterNode) Close()       { n.adapter.Close() }
 
 type Edge interface {
 	graph.Edge

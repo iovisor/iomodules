@@ -47,7 +47,17 @@ func NewAdapter(req createModuleRequest, g Graph, id int) (adapter Adapter, err 
 		}
 		adapter = a
 	case "bridge":
-		//a := NewBridgeAdapter
+		a := &BridgeAdapter{
+			uuid:   uuid,
+			name:   req.DisplayName,
+			tags:   req.Tags,
+			perm:   PermR | PermW,
+			config: make(map[string]interface{}),
+		}
+		if err = a.SetConfig(req, g, id); err != nil {
+			return
+		}
+		adapter = a
 	default:
 		err = fmt.Errorf("unknown ModuleType %s", req.ModuleType)
 		return

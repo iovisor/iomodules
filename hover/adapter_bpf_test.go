@@ -17,15 +17,11 @@
 package hover
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
-	"runtime/debug"
 	"strings"
 	"sync"
 	"testing"
@@ -82,24 +78,17 @@ static int handle_rx(void *pkt, struct metadata *md) {
 `
 )
 
-type testCase struct {
-	url    string    // url of the request
-	method string    // which htttp method to use
-	body   io.Reader // body of the request
-	code   int       // expected pass criteria
+// wrapCode creates a reader object to encapsulate a program in json
+func wrapCode(t *testing.T, body string, tags []string) io.Reader {
+	return newCodeReader(t, body, "bpf/forward", "test", tags)
 }
 
 // wrapCode creates a reader object to encapsulate a program in json
-func wrapCode(body string, tags []string) io.Reader {
-	return newCodeReader(body, "bpf/forward", "test", tags)
+func wrapCodePolicy(t *testing.T, body string, tags []string) io.Reader {
+	return newCodeReader(t, body, "bpf/policy", "policy", tags)
 }
 
-// wrapCode creates a reader object to encapsulate a program in json
-func wrapCodePolicy(body string, tags []string) io.Reader {
-	return newCodeReader(body, "bpf/policy", "policy", tags)
-}
-
-func newCodeReader(body string, modtype string, name string, tags []string) io.Reader {
+func newCodeReader(t *testing.T, body string, modtype string, name string, tags []string) io.Reader {
 	req := &createModuleRequest{
 		ModuleType:  modtype,
 		DisplayName: name,
@@ -108,42 +97,7 @@ func newCodeReader(body string, modtype string, name string, tags []string) io.R
 			"code": body,
 		},
 	}
-	b, err := json.Marshal(req)
-	if err != nil {
-		panic(err)
-	}
-	return bytes.NewReader(b)
-}
-
-func wrapObject(body interface{}) io.Reader {
-	b, err := json.Marshal(body)
-	if err != nil {
-		panic(err)
-	}
-	return bytes.NewReader(b)
-}
-
-func testSetup(t *testing.T) (*httptest.Server, func()) {
-	//os.Remove("/tmp/hover.db")
-	s := NewServer()
-	if s == nil {
-		t.Fatal("Could not start Hover server")
-	}
-	srv := httptest.NewServer(s.Handler())
-	return srv, func() {
-		s.Close()
-		srv.Close()
-	}
-}
-
-func testLinkModules(t *testing.T, srv *httptest.Server, from, to string) {
-	testOne(t, testCase{
-		url: srv.URL + "/links/",
-		body: wrapObject(map[string]interface{}{
-			"from": from,
-			"to":   to,
-		}),
-	}, nil)
+	return testWrapObject(t, req)
 }
 
 func TestModuleCreate(t *testing.T) {
@@ -153,16 +107,16 @@ func TestModuleCreate(t *testing.T) {
 	testValues := []testCase{
 		{
 			url:  srv.URL + "/modules/",
-			body: wrapCode(trivialC, []string{}),
+			body: wrapCode(t, trivialC, []string{}),
 		},
 		{
 			url:  srv.URL + "/modules/",
-			body: wrapCode(errorC, []string{}),
+			body: wrapCode(t, errorC, []string{}),
 			code: http.StatusBadRequest,
 		},
 		{
 			url:  srv.URL + "/modules/",
-			body: wrapCode(syntaxErrorC, []string{}),
+			body: wrapCode(t, syntaxErrorC, []string{}),
 			code: http.StatusBadRequest,
 		},
 	}
@@ -178,11 +132,11 @@ func TestModuleConnect(t *testing.T) {
 	var t1, t2 moduleEntry
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
-		body: wrapCode(trivialC, []string{}),
+		body: wrapCode(t, trivialC, []string{}),
 	}, &t1)
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
-		body: wrapCode(trivialC, []string{}),
+		body: wrapCode(t, trivialC, []string{}),
 	}, &t2)
 	testLinkModules(t, srv, "m/"+t1.Id, "m/"+t2.Id)
 }
@@ -199,44 +153,31 @@ func TestModuleRedirect(t *testing.T) {
 	defer cleanup()
 
 	// ns1 <-> redir1 <-> redir2 <-> ns2
-
-	testns1 := NewNs()
-	defer testns1.Close()
-	testns2 := NewNs()
-	defer testns2.Close()
-
-	l1, err := NewVeth(testns1, "ns1", "eth0", "10.10.1.1/24", nil)
-	if err != nil {
-		t.Error(err)
-	}
-	defer netlink.LinkDel(l1)
-	l2, err := NewVeth(testns2, "ns2", "eth0", "10.10.1.2/24", nil)
-	if err != nil {
-		t.Error(err)
-	}
-	defer netlink.LinkDel(l2)
+	links, nets, cleanup2 := testNetnsPair(t)
+	defer cleanup2()
 
 	var t1, t2 moduleEntry
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
-		body: wrapCode(redirectC, []string{}),
+		body: wrapCode(t, redirectC, []string{}),
 	}, &t1)
 
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
-		body: wrapCode(redirectC, []string{}),
+		body: wrapCode(t, redirectC, []string{}),
 	}, &t2)
 
-	testLinkModules(t, srv, "m/"+t1.Id, "i/"+l1.Name)
+	testLinkModules(t, srv, "m/"+t1.Id, "i/"+links[0].Name)
 	testLinkModules(t, srv, "m/"+t1.Id, "m/"+t2.Id)
-	testLinkModules(t, srv, "i/"+l2.Name, "m/"+t2.Id)
+	testLinkModules(t, srv, "i/"+links[1].Name, "m/"+t2.Id)
 
 	testSetTableEntry(t, srv, t1.Id, "redirect", 1, 2)
 	testSetTableEntry(t, srv, t1.Id, "redirect", 2, 1)
 	testSetTableEntry(t, srv, t2.Id, "redirect", 1, 2)
 	testSetTableEntry(t, srv, t2.Id, "redirect", 2, 1)
 	var wg sync.WaitGroup
-	go RunInNs(testns1, func() error {
+	wg.Add(1)
+	go RunInNs(nets[0], func() error {
 		defer wg.Done()
 		out, err := exec.Command("ping", "-c", "1", "10.10.1.2").Output()
 		if err != nil {
@@ -244,7 +185,6 @@ func TestModuleRedirect(t *testing.T) {
 		}
 		return nil
 	})
-	wg.Add(1)
 	wg.Wait()
 }
 
@@ -277,13 +217,13 @@ func TestModulePolicy(t *testing.T) {
 
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
-		body: wrapCode(redirectC, []string{}),
+		body: wrapCode(t, redirectC, []string{}),
 	}, &t2)
 	Info.Printf("Forward module id=%s\n", t2.Id)
 
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
-		body: wrapCodePolicy(policyC, []string{"m/" + t2.Id}),
+		body: wrapCodePolicy(t, policyC, []string{"m/" + t2.Id}),
 	}, &t1)
 	Info.Printf("Policy module id=%s\n", t1.Id)
 
@@ -294,6 +234,7 @@ func TestModulePolicy(t *testing.T) {
 	testLinkModules(t, srv, "m/"+t2.Id, "i/"+l2.Name)
 
 	var wg sync.WaitGroup
+	wg.Add(1)
 	go RunInNs(testns1, func() error {
 		defer wg.Done()
 		out, err := exec.Command("ping", "-c", "1", "10.10.1.2").Output()
@@ -302,7 +243,6 @@ func TestModulePolicy(t *testing.T) {
 		}
 		return nil
 	})
-	wg.Add(1)
 	wg.Wait()
 
 	var c1, c2 AdapterTablePair
@@ -326,47 +266,7 @@ func TestModulePolicy(t *testing.T) {
 	// remove policy
 	testOne(t, testCase{
 		url:    srv.URL + "/modules/" + t1.Id,
-		body:   wrapCodePolicy(policyC, []string{}),
+		body:   wrapCodePolicy(t, policyC, []string{}),
 		method: "PUT",
 	}, &t1)
-}
-
-func testOne(t *testing.T, test testCase, rsp interface{}) {
-	client := &http.Client{}
-
-	var resp *http.Response
-	var err error
-	switch test.method {
-	case "", "POST":
-		resp, err = client.Post(test.url, "application/json", test.body)
-	case "GET":
-		resp, err = client.Get(test.url)
-	default:
-		req, err := http.NewRequest(test.method, test.url, test.body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resp, err = client.Do(req)
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, err := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		debug.PrintStack()
-		t.Fatal(err)
-	}
-	if test.code == 0 {
-		test.code = http.StatusOK
-	}
-	if resp.StatusCode != test.code {
-		debug.PrintStack()
-		t.Fatalf("Expected %d, got %d :: %s", test.code, resp.StatusCode, string(body))
-	}
-	if rsp != nil {
-		if err := json.Unmarshal(body, rsp); err != nil {
-			t.Fatal(err)
-		}
-	}
 }

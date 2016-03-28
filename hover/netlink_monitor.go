@@ -79,9 +79,17 @@ func (nm *NetlinkMonitor) handleNewlink(link netlink.Link) {
 	defer nm.mtx.Unlock()
 	switch link := link.(type) {
 	case *netlink.Bridge:
-		//id := nm.g.NewNodeID()
-		//node := NewBridgeNode(link, id)
-		//nm.g.AddNode(node)
+		bridge := &BridgeAdapter{
+			uuid:   link.Attrs().Name,
+			name:   link.Attrs().Name,
+			tags:   []string{},
+			perm:   PermR,
+			config: make(map[string]interface{}),
+			link:   link,
+		}
+		node := NewAdapterNode(bridge)
+		node.SetID(nm.g.NewNodeID())
+		nm.g.AddNode(node)
 	default:
 		if _, ok := nm.nodes[link.Attrs().Index]; !ok {
 			nm.nodes[link.Attrs().Index] = NewExtInterface(link)
@@ -92,8 +100,18 @@ func (nm *NetlinkMonitor) handleNewlink(link netlink.Link) {
 func (nm *NetlinkMonitor) handleDellink(link netlink.Link) {
 	nm.mtx.Lock()
 	defer nm.mtx.Unlock()
-	if _, ok := nm.nodes[link.Attrs().Index]; ok {
-		delete(nm.nodes, link.Attrs().Index)
+	switch link := link.(type) {
+	case *netlink.Bridge:
+		node := nm.g.NodeByPath("b/" + link.Attrs().Name)
+		if node != nil {
+			Warn.Println("TODO: remove resources for edges from " + node.Path())
+			node.Close()
+			nm.g.RemoveNode(node)
+		}
+	default:
+		if _, ok := nm.nodes[link.Attrs().Index]; ok {
+			delete(nm.nodes, link.Attrs().Index)
+		}
 	}
 }
 
