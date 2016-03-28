@@ -19,7 +19,6 @@ import (
 	"syscall"
 
 	"github.com/vishvananda/netlink"
-	"golang.org/x/tools/container/intsets"
 )
 
 type InterfaceNode interface {
@@ -28,18 +27,14 @@ type InterfaceNode interface {
 }
 
 type ExtInterface struct {
-	id      int
-	link    netlink.Link
-	fd      int
-	handles *HandlePool
+	NodeBase
+	link netlink.Link
 }
 
 func NewExtInterface(link netlink.Link) *ExtInterface {
 	return &ExtInterface{
-		id:      -1,
-		link:    link,
-		fd:      -1,
-		handles: NewHandlePool(1),
+		NodeBase: NewNodeBase(-1, -1, link.Attrs().Name, "i/", 1),
+		link:     link,
 	}
 }
 
@@ -52,7 +47,7 @@ func (ifc *ExtInterface) FD() int {
 	}
 	bpf := NewBpfModule(netdevTxC, cflags)
 	if bpf == nil {
-		panic(fmt.Errorf("Failed to compile bpf module for %s egress", ifc.ShortPath()))
+		panic(fmt.Errorf("Failed to compile bpf module for %s egress", ifc.Path()))
 	}
 	// free the llvm memory, just keep the fd
 	defer bpf.Close()
@@ -68,16 +63,8 @@ func (ifc *ExtInterface) FD() int {
 	return ifc.fd
 }
 
-func (ifc *ExtInterface) ID() int                      { return ifc.id }
-func (ifc *ExtInterface) DOTID() string                { return fmt.Sprintf("%q", ifc.ShortPath()) }
-func (ifc *ExtInterface) Link() netlink.Link           { return ifc.link }
-func (ifc *ExtInterface) Path() string                 { return "external_interfaces/" + ifc.link.Attrs().Name }
-func (ifc *ExtInterface) ShortPath() string            { return "e/" + ifc.link.Attrs().Name }
-func (ifc *ExtInterface) SetID(id int)                 { ifc.id = id }
-func (ifc *ExtInterface) NewInterfaceID() (int, error) { return ifc.handles.Acquire() }
-func (ifc *ExtInterface) ReleaseInterfaceID(id int)    { ifc.handles.Release(id) }
-func (ifc *ExtInterface) Groups() *intsets.Sparse      { return &intsets.Sparse{} }
-func (ifc *ExtInterface) String() string               { return ifc.ShortPath() }
+func (ifc *ExtInterface) Link() netlink.Link { return ifc.link }
+func (ifc *ExtInterface) SetID(id int)       { ifc.id = id }
 
 type IngressChain struct {
 	fd int

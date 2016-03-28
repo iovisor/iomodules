@@ -31,7 +31,6 @@ type Node interface {
 	FD() int
 	String() string
 	Path() string
-	ShortPath() string
 	DOTID() string
 	SetID(id int)
 	NewInterfaceID() (int, error)
@@ -39,31 +38,48 @@ type Node interface {
 	Groups() *intsets.Sparse
 }
 
-type AdapterNode struct {
-	adapter Adapter
+type NodeBase struct {
 	id      int
+	fd      int
+	uuid    string
+	prefix  string
 	handles *HandlePool
 	groups  *intsets.Sparse
 }
 
-func NewAdapterNode(adapter Adapter) *AdapterNode {
-	return &AdapterNode{
-		adapter: adapter,
-		handles: NewHandlePool(MAX_INTERFACES),
+func NewNodeBase(id, fd int, uuid, prefix string, nhandles uint) NodeBase {
+	return NodeBase{
+		id:      id,
+		fd:      fd,
+		uuid:    uuid,
+		prefix:  prefix,
+		handles: NewHandlePool(nhandles),
 		groups:  &intsets.Sparse{},
 	}
 }
 
-func (n *AdapterNode) ID() int                      { return n.id }
-func (n *AdapterNode) FD() int                      { return n.adapter.FD() }
-func (n *AdapterNode) DOTID() string                { return fmt.Sprintf("%q", n.ShortPath()) }
-func (n *AdapterNode) Path() string                 { return "modules/" + n.adapter.UUID() }
-func (n *AdapterNode) ShortPath() string            { return "m/" + n.adapter.UUID()[:8] }
-func (n *AdapterNode) SetID(id int)                 { n.id = id }
-func (n *AdapterNode) NewInterfaceID() (int, error) { return n.handles.Acquire() }
-func (n *AdapterNode) ReleaseInterfaceID(id int)    { n.handles.Release(id) }
-func (n *AdapterNode) Groups() *intsets.Sparse      { return n.groups }
-func (n *AdapterNode) String() string               { return n.ShortPath() }
+func (n *NodeBase) ID() int                      { return n.id }
+func (n *NodeBase) FD() int                      { return n.fd }
+func (n *NodeBase) DOTID() string                { return fmt.Sprintf("%q", n.Path()) }
+func (n *NodeBase) Path() string                 { return n.prefix + n.uuid }
+func (n *NodeBase) String() string               { return n.Path() }
+func (n *NodeBase) Groups() *intsets.Sparse      { return n.groups }
+func (n *NodeBase) NewInterfaceID() (int, error) { return n.handles.Acquire() }
+func (n *NodeBase) ReleaseInterfaceID(id int)    { n.handles.Release(id) }
+
+type AdapterNode struct {
+	NodeBase
+	adapter Adapter
+}
+
+func NewAdapterNode(adapter Adapter) *AdapterNode {
+	return &AdapterNode{
+		NodeBase: NewNodeBase(-1, adapter.FD(), adapter.UUID(), "m/", MAX_INTERFACES),
+		adapter:  adapter,
+	}
+}
+
+func (n *AdapterNode) SetID(id int) { n.id = id }
 
 type Edge interface {
 	graph.Edge
@@ -130,11 +146,11 @@ func (g *DirectedGraph) HasPath(path string) bool {
 
 func (g *DirectedGraph) AddNode(node graph.Node) {
 	g.DirectedGraph.AddNode(node)
-	g.paths[node.(Node).ShortPath()] = node.ID()
+	g.paths[node.(Node).Path()] = node.ID()
 }
 func (g *DirectedGraph) RemoveNode(node graph.Node) {
 	g.DirectedGraph.RemoveNode(node)
-	delete(g.paths, node.(Node).ShortPath())
+	delete(g.paths, node.(Node).Path())
 }
 
 func DumpDotFile(g Graph) {

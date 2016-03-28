@@ -150,7 +150,7 @@ func (nm *NetlinkMonitor) EnsureInterfaces(g Graph, pp *PatchPanel) {
 		if node.ID() < 0 {
 			continue
 		}
-		Info.Printf("visit: %d :: %s :: %d\n", node.ID(), node.ShortPath(), ifindex)
+		Info.Printf("visit: %d :: %s :: %d\n", node.ID(), node.Path(), ifindex)
 		pp.modules.Set(strconv.Itoa(node.ID()), strconv.Itoa(node.FD()))
 		switch deg := g.Degree(node); deg {
 		case 2:
@@ -162,7 +162,7 @@ func (nm *NetlinkMonitor) EnsureInterfaces(g Graph, pp *PatchPanel) {
 				panic(err)
 			}
 			defer chain.Close()
-			Info.Printf(" %4d: %-11s{%#x}\n", e.FID(), next.ShortPath(), e.Chain())
+			Info.Printf(" %4d: %-11s{%#x}\n", e.FID(), next.Path(), e.Chain())
 			if err := ensureIngressFd(node.Link(), chain.FD()); err != nil {
 				panic(err)
 			}

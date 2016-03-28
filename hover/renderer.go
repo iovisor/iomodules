@@ -59,7 +59,7 @@ func (h *Renderer) Run(g Graph, pp *PatchPanel, nlmon *NetlinkMonitor) {
 	}
 	visitFn := func(prev, this Node) {
 		//pp.modules.Set(strconv.Itoa(this.ID()), strconv.Itoa(this.FD()))
-		Info.Printf("visit: %d :: %s\n", this.ID(), this.ShortPath())
+		Info.Printf("visit: %d :: %s\n", this.ID(), this.Path())
 		for _, t := range g.From(this) {
 			e := g.E(this, t)
 			adapter := this.(*AdapterNode).adapter
@@ -70,7 +70,7 @@ func (h *Renderer) Run(g Graph, pp *PatchPanel, nlmon *NetlinkMonitor) {
 			}
 			key := fmt.Sprintf("%d", e.FID())
 			val := fmt.Sprintf("{%#x}", e.Chain())
-			Info.Printf(" %4s: %-11s%s\n", key, target.ShortPath(), val)
+			Info.Printf(" %4s: %-11s%s\n", key, target.Path(), val)
 			if err := fc.Set(key, val); err != nil {
 				panic(err)
 			}

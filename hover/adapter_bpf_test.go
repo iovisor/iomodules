@@ -279,13 +279,13 @@ func TestModulePolicy(t *testing.T) {
 		url:  srv.URL + "/modules/",
 		body: wrapCode(redirectC, []string{}),
 	}, &t2)
-	Info.Printf("Forward module id=%s\n", t2.Id[:8])
+	Info.Printf("Forward module id=%s\n", t2.Id)
 
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
-		body: wrapCodePolicy(policyC, []string{"m/" + t2.Id[:8]}),
+		body: wrapCodePolicy(policyC, []string{"m/" + t2.Id}),
 	}, &t1)
-	Info.Printf("Policy module id=%s\n", t1.Id[:8])
+	Info.Printf("Policy module id=%s\n", t1.Id)
 
 	testSetTableEntry(t, srv, t2.Id, "redirect", 1, 2)
 	testSetTableEntry(t, srv, t2.Id, "redirect", 2, 1)
