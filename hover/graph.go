@@ -78,9 +78,9 @@ func NewAdapterNode(adapter Adapter) *AdapterNode {
 	var prefix string
 	switch adapter.(type) {
 	case *BridgeAdapter:
-		prefix = "b/"
+		prefix = "b:"
 	default:
-		prefix = "m/"
+		prefix = "m:"
 	}
 	return &AdapterNode{
 		NodeBase: NewNodeBase(-1, adapter.FD(), adapter.UUID(), prefix, MAX_INTERFACES),
@@ -88,8 +88,9 @@ func NewAdapterNode(adapter Adapter) *AdapterNode {
 	}
 }
 
-func (n *AdapterNode) SetID(id int) { n.id = id }
-func (n *AdapterNode) Close()       { n.adapter.Close() }
+func (n *AdapterNode) SetID(id int)     { n.id = id }
+func (n *AdapterNode) Close()           { n.adapter.Close() }
+func (n *AdapterNode) Adapter() Adapter { return n.adapter }
 
 type Edge interface {
 	graph.Edge

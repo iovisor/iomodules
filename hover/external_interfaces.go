@@ -33,7 +33,7 @@ type ExtInterface struct {
 
 func NewExtInterface(link netlink.Link) *ExtInterface {
 	return &ExtInterface{
-		NodeBase: NewNodeBase(-1, -1, link.Attrs().Name, "i/", 1),
+		NodeBase: NewNodeBase(-1, -1, link.Attrs().Name, "i:", 1),
 		link:     link,
 	}
 }

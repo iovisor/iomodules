@@ -218,7 +218,14 @@ func (s *HoverServer) Init() (err error) {
 }
 
 func (s *HoverServer) handleModuleList(r *http.Request) routeResponse {
-	entries := s.adapterEntries.GetAll()
+	entries := []*moduleEntry{}
+	for _, node := range s.g.Nodes() {
+		switch node := node.(type) {
+		case *ExtInterface:
+		case *AdapterNode:
+			entries = append(entries, adapterToModuleEntry(node.Adapter()))
+		}
+	}
 	return routeResponse{body: entries}
 }
 
@@ -243,11 +250,17 @@ func (s *HoverServer) handleModulePost(r *http.Request) routeResponse {
 
 func (s *HoverServer) handleModuleGet(r *http.Request) routeResponse {
 	id := getRequestVar(r, "moduleId")
-	entry := s.adapterEntries.Get(id)
-	if entry == nil {
+	node := s.g.NodeByPath(id)
+	if node == nil {
 		return notFound()
 	}
-	return routeResponse{body: entry}
+	switch node := node.(type) {
+	case *ExtInterface:
+	case *AdapterNode:
+		return routeResponse{body: adapterToModuleEntry(node.Adapter())}
+	}
+
+	return notFound()
 }
 func (s *HoverServer) handleModulePut(r *http.Request) routeResponse {
 	var req moduleEntry
@@ -414,7 +427,7 @@ func (s *HoverServer) handleModuleTableEntryDelete(r *http.Request) routeRespons
 }
 
 func (s *HoverServer) lookupNode(nodePath string) Node {
-	parts := strings.SplitN(nodePath, "/", 2)
+	parts := strings.SplitN(nodePath, ":", 2)
 	if len(parts) != 2 {
 		panic(fmt.Errorf("Malformed node path %q\n", nodePath))
 	}

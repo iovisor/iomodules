@@ -102,7 +102,7 @@ func (nm *NetlinkMonitor) handleDellink(link netlink.Link) {
 	defer nm.mtx.Unlock()
 	switch link := link.(type) {
 	case *netlink.Bridge:
-		node := nm.g.NodeByPath("b/" + link.Attrs().Name)
+		node := nm.g.NodeByPath("b:" + link.Attrs().Name)
 		if node != nil {
 			Warn.Println("TODO: remove resources for edges from " + node.Path())
 			node.Close()

@@ -23,7 +23,7 @@ import (
 )
 
 func TestBridgeDetect(t *testing.T) {
-	_, cleanup := testSetup(t)
+	srv, cleanup := testSetup(t)
 	defer cleanup()
 
 	links, nets, cleanup2 := testNetnsPair(t)
@@ -50,6 +50,11 @@ func TestBridgeDetect(t *testing.T) {
 	if err := netlink.LinkSetUp(br); err != nil {
 		t.Fatal(err)
 	}
+
+	testOne(t, testCase{
+		url:    srv.URL + "/modules/b:" + br.Attrs().Name,
+		method: "GET",
+	}, nil)
 
 	var wg sync.WaitGroup
 	wg.Add(1)

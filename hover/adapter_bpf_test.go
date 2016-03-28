@@ -138,7 +138,7 @@ func TestModuleConnect(t *testing.T) {
 		url:  srv.URL + "/modules/",
 		body: wrapCode(t, trivialC, []string{}),
 	}, &t2)
-	testLinkModules(t, srv, "m/"+t1.Id, "m/"+t2.Id)
+	testLinkModules(t, srv, "m:"+t1.Id, "m:"+t2.Id)
 }
 
 func testSetTableEntry(t *testing.T, srv *httptest.Server, modId, tblName string, k, v interface{}) {
@@ -167,9 +167,9 @@ func TestModuleRedirect(t *testing.T) {
 		body: wrapCode(t, redirectC, []string{}),
 	}, &t2)
 
-	testLinkModules(t, srv, "m/"+t1.Id, "i/"+links[0].Name)
-	testLinkModules(t, srv, "m/"+t1.Id, "m/"+t2.Id)
-	testLinkModules(t, srv, "i/"+links[1].Name, "m/"+t2.Id)
+	testLinkModules(t, srv, "m:"+t1.Id, "i:"+links[0].Name)
+	testLinkModules(t, srv, "m:"+t1.Id, "m:"+t2.Id)
+	testLinkModules(t, srv, "i:"+links[1].Name, "m:"+t2.Id)
 
 	testSetTableEntry(t, srv, t1.Id, "redirect", 1, 2)
 	testSetTableEntry(t, srv, t1.Id, "redirect", 2, 1)
@@ -223,15 +223,15 @@ func TestModulePolicy(t *testing.T) {
 
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
-		body: wrapCodePolicy(t, policyC, []string{"m/" + t2.Id}),
+		body: wrapCodePolicy(t, policyC, []string{"m:" + t2.Id}),
 	}, &t1)
 	Info.Printf("Policy module id=%s\n", t1.Id)
 
 	testSetTableEntry(t, srv, t2.Id, "redirect", 1, 2)
 	testSetTableEntry(t, srv, t2.Id, "redirect", 2, 1)
 
-	testLinkModules(t, srv, "i/"+l1.Name, "m/"+t2.Id)
-	testLinkModules(t, srv, "m/"+t2.Id, "i/"+l2.Name)
+	testLinkModules(t, srv, "i:"+l1.Name, "m:"+t2.Id)
+	testLinkModules(t, srv, "m:"+t2.Id, "i:"+l2.Name)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
