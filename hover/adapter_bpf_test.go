@@ -248,7 +248,6 @@ func TestModulePolicy(t *testing.T) {
 	var c1, c2 AdapterTablePair
 	testOne(t, testCase{
 		url:    srv.URL + "/modules/" + t1.Id + "/tables/counters/entries/0x0",
-		body:   nil,
 		method: "GET",
 	}, &c1)
 	if c1.Key != "0x0" || c1.Value == "0x0" {
@@ -256,7 +255,6 @@ func TestModulePolicy(t *testing.T) {
 	}
 	testOne(t, testCase{
 		url:    srv.URL + "/modules/" + t1.Id + "/tables/counters/entries/0x1",
-		body:   nil,
 		method: "GET",
 	}, &c2)
 	if c2.Key != "0x1" || c2.Value == "0x0" {

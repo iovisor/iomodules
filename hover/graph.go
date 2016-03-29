@@ -92,29 +92,100 @@ func (n *AdapterNode) SetID(id int)     { n.id = id }
 func (n *AdapterNode) Close()           { n.adapter.Close() }
 func (n *AdapterNode) Adapter() Adapter { return n.adapter }
 
+type NodeIfc struct {
+	node int
+	ifc  int
+}
+
+func (ni NodeIfc) ID() int        { return ni.node }
+func (ni NodeIfc) Ifc() int       { return ni.ifc }
+func (ni NodeIfc) Serialize() int { return ni.ifc<<16 | ni.node }
+
 type Edge interface {
 	graph.Edge
-	F() Node
-	T() Node
-	FID() int
-	TID() int
-	Chain() [3]int
+	F() NodeIfc
+	T() NodeIfc
+	Update([]NodeIfc, int, int) bool
+	ChainEquals([]NodeIfc) bool
+	Serialize() [4]int
+	IsDirty() bool
 }
 
 type EdgeChain struct {
-	f, t     Node
-	w        [3]int
-	fid, tid int
+	f, t           Node
+	w              [3]NodeIfc
+	fromIfc, toIfc *int
+	dirty          bool
 }
 
-func (e EdgeChain) From() graph.Node { return e.f }
-func (e EdgeChain) To() graph.Node   { return e.t }
-func (e EdgeChain) Weight() float64  { return float64(e.w[0]) }
-func (e EdgeChain) F() Node          { return e.f }
-func (e EdgeChain) T() Node          { return e.t }
-func (e EdgeChain) Chain() [3]int    { return e.w }
-func (e EdgeChain) FID() int         { return e.fid }
-func (e EdgeChain) TID() int         { return e.tid }
+func NewEdgeChain(f, t Node, fp, tp *int) *EdgeChain {
+	return &EdgeChain{
+		f:       f,
+		t:       t,
+		w:       [3]NodeIfc{},
+		fromIfc: fp,
+		toIfc:   tp,
+	}
+}
+func (e *EdgeChain) From() graph.Node { return e.f }
+func (e *EdgeChain) To() graph.Node   { return e.t }
+func (e *EdgeChain) F() NodeIfc       { return NodeIfc{e.f.ID(), *e.fromIfc} }
+func (e *EdgeChain) T() NodeIfc       { return NodeIfc{e.t.ID(), *e.toIfc} }
+func (e *EdgeChain) Weight() float64  { return float64(2) }
+func (e *EdgeChain) IsDirty() bool    { return e.dirty }
+
+func (e *EdgeChain) ChainEquals(dst []NodeIfc) bool {
+	if len(e.w) != len(dst) {
+		return false
+	}
+	for i, v := range e.w {
+		if dst[i] != v {
+			return false
+		}
+	}
+	return true
+}
+func (e *EdgeChain) Update(chain []NodeIfc, fromIfc, toIfc int) bool {
+	if !e.ChainEquals(chain) {
+		if len(chain) > len(e.w) {
+			panic("EdgeChain.Update: chain too long")
+		}
+		for i, v := range chain {
+			e.w[i] = v
+		}
+		e.dirty = true
+	}
+	if *e.fromIfc != fromIfc {
+		*e.fromIfc = fromIfc
+		e.dirty = true
+	}
+	if *e.toIfc != toIfc {
+		*e.toIfc = toIfc
+		e.dirty = true
+	}
+	return e.dirty
+}
+
+func (e *EdgeChain) serialize() [4]int {
+	buf := [4]int{}
+	chain := buf[:0]
+	for _, ni := range e.w {
+		if ni.Serialize() == 0 {
+			break
+		}
+		chain = append(chain, ni.Serialize())
+	}
+	chain = append(chain, NodeIfc{e.t.ID(), *e.toIfc}.Serialize())
+	return buf
+}
+func (e *EdgeChain) Serialize() [4]int {
+	e.dirty = false
+	return e.serialize()
+}
+func (e *EdgeChain) String() string {
+	// compatible with scanf bcc key reader
+	return fmt.Sprintf("{%#x}", e.serialize())
+}
 
 type Graph interface {
 	graph.DirectedBuilder
@@ -135,6 +206,15 @@ func NewGraph() Graph {
 	return &DirectedGraph{
 		DirectedGraph: *simple.NewDirectedGraph(0, math.Inf(1)),
 		paths:         make(map[string]int),
+	}
+}
+
+func (g *DirectedGraph) Copy(src Graph) {
+	g.DirectedGraph = *simple.NewDirectedGraph(0, math.Inf(1))
+	graph.Copy(&g.DirectedGraph, src)
+	g.paths = make(map[string]int)
+	for k, v := range src.(*DirectedGraph).paths {
+		g.paths[k] = v
 	}
 }
 

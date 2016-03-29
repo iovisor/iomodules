@@ -26,7 +26,6 @@ import (
 
 	"github.com/gonum/graph"
 	"github.com/gonum/graph/traverse"
-	"golang.org/x/tools/container/intsets"
 )
 
 type routeResponse struct {
@@ -152,23 +151,6 @@ func (a AdapterEntries) Remove(id string) {
 	}
 }
 
-func (a AdapterEntries) GetAll() []*moduleEntry {
-	result := []*moduleEntry{}
-	for _, node := range a {
-		result = append(result, &moduleEntry{
-			createModuleRequest: createModuleRequest{
-				ModuleType:  node.adapter.Type(),
-				DisplayName: node.adapter.Name(),
-				Tags:        node.adapter.Tags(),
-				Config:      node.adapter.Config(),
-			},
-			Id:   node.adapter.UUID(),
-			Perm: fmt.Sprintf("0%x00", node.adapter.Perm()),
-		})
-	}
-	return result
-}
-
 func (a AdapterEntries) Get(id string) *moduleEntry {
 	var result *moduleEntry
 	if node, ok := a[id]; ok {
@@ -244,6 +226,7 @@ func (s *HoverServer) handleModulePost(r *http.Request) routeResponse {
 	s.adapterEntries.Add(node)
 	node.SetID(id)
 	s.g.AddNode(node)
+	//s.recomputePolicies()
 	entry := adapterToModuleEntry(adapter)
 	return routeResponse{body: entry}
 }
@@ -277,6 +260,7 @@ func (s *HoverServer) handleModulePut(r *http.Request) routeResponse {
 		panic(err)
 	}
 
+	s.recomputePolicies()
 	entry := adapterToModuleEntry(node.adapter)
 	return routeResponse{body: entry}
 }
@@ -468,51 +452,6 @@ func (s *HoverServer) handleLinkList(r *http.Request) routeResponse {
 	return routeResponse{body: edges}
 }
 
-func computeChain(from, to Node) (fromto []int, tofrom []int) {
-	// For a new link, there is a chain in each direction to be computed and downloaded.
-	// Every link is specified as from:to, but we also implicitly create to:from.
-	//
-	// To compute the chain in each direction, the following algorithm is followed:
-	//  Let T and F represent the set of groups for the 'to' and 'from' nodes, respectively.
-	//  The leaving set L is the set difference between F and T.
-	//  L := F - T
-	//  The entering set E is the set difference between T and F
-	//  E := T - F
-	//
-	// For the link from:to, the chain is built as follows:
-	//  For each module e in E, invoke the ingress policy (e.ifc[1])
-	//  For each module l in L, invoke the egress policy (l.ifc[2])
-	// For the link to:from, the chain is build as follows (reversed of above):
-	//  For each module l in L, invoke the ingress policy (l.ifc[1])
-	//  For each module e in E, invoke the egress policy (e.ifc[2])
-
-	var e, l intsets.Sparse
-	l.Difference(from.Groups(), to.Groups())
-	e.Difference(to.Groups(), from.Groups())
-
-	var x intsets.Sparse
-	var id int
-
-	x.Copy(&e)
-	for x.TakeMin(&id) {
-		fromto = append(fromto, 1<<16|id)
-	}
-	x.Copy(&l)
-	for x.TakeMin(&id) {
-		fromto = append(fromto, 2<<16|id)
-	}
-
-	x.Copy(&l)
-	for x.TakeMin(&id) {
-		tofrom = append(tofrom, 1<<16|id)
-	}
-	x.Copy(&e)
-	for x.TakeMin(&id) {
-		tofrom = append(tofrom, 2<<16|id)
-	}
-	return
-}
-
 func (s *HoverServer) handleLinkPost(r *http.Request) routeResponse {
 	var req linkEntry
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -524,19 +463,6 @@ func (s *HoverServer) handleLinkPost(r *http.Request) routeResponse {
 		panic(fmt.Errorf("Link already exists between %q and %q", from, to))
 	}
 
-	fromto, tofrom := computeChain(from, to)
-
-	fromID, err := from.NewInterfaceID()
-	if err != nil {
-		panic(err)
-	}
-
-	toID, err := to.NewInterfaceID()
-	if err != nil {
-		from.ReleaseInterfaceID(fromID)
-		panic(err)
-	}
-
 	if from.ID() < 0 {
 		from.SetID(s.g.NewNodeID())
 		s.g.AddNode(from)
@@ -545,22 +471,17 @@ func (s *HoverServer) handleLinkPost(r *http.Request) routeResponse {
 		to.SetID(s.g.NewNodeID())
 		s.g.AddNode(to)
 	}
+	fid, tid := -1, -1
+	s.g.SetEdge(NewEdgeChain(from, to, &fid, &tid))
+	s.g.SetEdge(NewEdgeChain(to, from, &tid, &fid))
 
-	fromto = append(fromto, toID<<16|to.ID())
-	tofrom = append(tofrom, fromID<<16|from.ID())
-	if len(fromto) > 3 || len(tofrom) > 3 {
-		panic(fmt.Errorf("Too many policies between %s and %s", from, to))
+	if err := s.renderer.Provision(s.g, s.nlmon); err != nil {
+		panic(err)
 	}
-	var ft, tf [3]int
-	for i, x := range fromto {
-		ft[i] = x
-	}
-	for i, x := range tofrom {
-		tf[i] = x
-	}
-	Debug.Printf("fromto(%d.%d):%x, tofrom(%d.%d):%x\n", from.ID(), fromID, ft, to.ID(), toID, tf)
-	s.g.SetEdge(EdgeChain{from, to, ft, fromID, toID})
-	s.g.SetEdge(EdgeChain{to, from, tf, toID, fromID})
+
+	//Debug.Printf("fromto(%d.%d):%#x, tofrom(%d.%d):%#x\n", from.ID(), fromID, ft, to.ID(), toID, tf)
+	//s.g.SetEdge(NewEdgeChain(from, to, ft, fromID, toID))
+	//s.g.SetEdge(NewEdgeChain(to, from, tf, toID, fromID))
 	s.recomputePolicies()
 	return routeResponse{}
 }

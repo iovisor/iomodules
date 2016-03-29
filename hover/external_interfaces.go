@@ -70,11 +70,12 @@ type IngressChain struct {
 	fd int
 }
 
-func NewIngressChain(chain [3]int) (*IngressChain, error) {
+func NewIngressChain(chain [4]int) (*IngressChain, error) {
 	cflags := []string{
 		fmt.Sprintf("-DCHAIN_VALUE0=0x%x", chain[0]),
 		fmt.Sprintf("-DCHAIN_VALUE1=0x%x", chain[1]),
 		fmt.Sprintf("-DCHAIN_VALUE2=0x%x", chain[2]),
+		fmt.Sprintf("-DCHAIN_VALUE3=0x%x", chain[3]),
 	}
 	//Debug.Printf("netdev: %v\n", cflags)
 	bpf := NewBpfModule(netdevRxC, cflags)

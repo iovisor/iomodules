@@ -17,6 +17,8 @@ package hover
 import (
 	"fmt"
 	"strconv"
+
+	"golang.org/x/tools/container/intsets"
 )
 
 type Renderer struct {
@@ -31,30 +33,113 @@ func filterInterfaceNode(e Edge) bool {
 	return !ok
 }
 
-func (h *Renderer) Provision(g Graph, pp *PatchPanel, nlmon *NetlinkMonitor) {
-	visitFn := func(prev, this Node) {
-		for i, n := range g.From(this) {
-			target := n.(Node)
-			pp.modules.Set(strconv.Itoa(i), strconv.Itoa(target.ID()))
-			Debug.Printf(" %s:%d -> %s:%d\n", this.Path(), i, target.Path(), target.ID())
+func computeChainFrom(from, to Node) (chain []NodeIfc) {
+	// For each link, there is a chain of modules to be invoked: the
+	// ingress policy modules, the egress policy modules, and the final
+	// forwarding nexthop.
+	//
+	// To compute the chain in each direction, the following algorithm is
+	// followed:
+	//  Let T and F represent the set of groups for the 'to' and 'from'
+	//   nodes, respectively.
+	//  The leaving set L is the set difference between F and T.
+	//  L := F - T
+	//  The entering set E is the set difference between T and F
+	//  E := T - F
+	//
+	// For the directed edge from:to, the chain is built as follows:
+	//  For each module e in E, invoke the ingress policy (e.ifc[1])
+	//  For each module l in L, invoke the egress policy (l.ifc[2])
+	//
+	// The directed edge to:from is calculated by calling this function
+	// with to/from reversed.
+
+	var e, l, x intsets.Sparse
+	l.Difference(from.Groups(), to.Groups())
+	e.Difference(to.Groups(), from.Groups())
+
+	var id int
+
+	x.Copy(&e)
+	for x.TakeMin(&id) {
+		chain = append(chain, NodeIfc{id, 1})
+	}
+	x.Copy(&l)
+	for x.TakeMin(&id) {
+		chain = append(chain, NodeIfc{id, 2})
+	}
+	return chain
+}
+
+// provisionNode allocates the IDs for one node, meant to be called from a tree
+// traversal. If allocation fails, panic and expect to be recovered. The
+// allocated IDs are stored in newIds so as to be collected in the recover
+// routine.
+func provisionNode(g Graph, this Node, newIds *[]NodeIfc) {
+	for _, t := range g.From(this) {
+		e := g.E(this, t)
+		target := t.(Node)
+		chain := computeChainFrom(this, target)
+		fid, tid := e.F().Ifc(), e.T().Ifc()
+		var err error
+		if fid < 0 {
+			if fid, err = e.From().(Node).NewInterfaceID(); err != nil {
+				Error.Printf("Provisioning %s failed %s\n", e.From().(Node), err)
+				panic(err)
+			}
+			*newIds = append(*newIds, NodeIfc{e.From().ID(), fid})
+		}
+		if tid < 0 {
+			if tid, err = e.To().(Node).NewInterfaceID(); err != nil {
+				Error.Printf("Provisioning %s failed %s\n", e.To().(Node), err)
+				panic(err)
+			}
+			*newIds = append(*newIds, NodeIfc{e.To().ID(), tid})
+		}
+		if e.Update(chain, fid, tid) {
 		}
 	}
+}
+
+func (h *Renderer) Provision(g Graph, nlmon *NetlinkMonitor) (err error) {
+	newIds := []NodeIfc{}
+	visitFn := func(prev, this Node) {
+		provisionNode(g, this, &newIds)
+	}
 	t := NewDepthFirst(visitFn, filterInterfaceNode)
+
+	defer func() {
+		if r := recover(); r != nil {
+			switch r := r.(type) {
+			case error:
+				err = r
+				for _, ni := range newIds {
+					g.Node(ni.ID()).ReleaseInterfaceID(ni.Ifc())
+				}
+				// rollback
+			default:
+				panic(r)
+			}
+		}
+	}()
+
 	// Find all of the Adapter (internal) nodes reachable from an external interface.
 	// Collect the ID of each node and update the modules table.
 	for _, node := range nlmon.Interfaces() {
-		if !g.Has(node) {
+		if node.ID() < 0 {
 			continue
 		}
+		provisionNode(g, node, &newIds)
 		t.Walk(g, node, nil)
 	}
+	return
 }
 
 func (h *Renderer) Run(g Graph, pp *PatchPanel, nlmon *NetlinkMonitor) {
 	for _, node := range g.Nodes() {
 		if node, ok := node.(Node); ok {
 			pp.modules.Set(strconv.Itoa(node.ID()), strconv.Itoa(node.FD()))
-			Info.Printf("modules[%d] = %d\n", node.ID(), node.FD())
+			//Info.Printf("modules[%d] = %d\n", node.ID(), node.FD())
 		}
 	}
 	visitFn := func(prev, this Node) {
@@ -68,8 +153,8 @@ func (h *Renderer) Run(g Graph, pp *PatchPanel, nlmon *NetlinkMonitor) {
 			if fc == nil {
 				panic(fmt.Errorf("Could not find forward_chain in adapter"))
 			}
-			key := fmt.Sprintf("%d", e.FID())
-			val := fmt.Sprintf("{%#x}", e.Chain())
+			key := fmt.Sprintf("%d", e.F().Ifc())
+			val := fmt.Sprintf("{%#x}", e.Serialize())
 			Info.Printf(" %4s: %-11s%s\n", key, target.Path(), val)
 			if err := fc.Set(key, val); err != nil {
 				panic(err)

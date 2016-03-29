@@ -175,12 +175,12 @@ func (nm *NetlinkMonitor) EnsureInterfaces(g Graph, pp *PatchPanel) {
 			//Debug.Printf("Adding ingress for %s\n", node.Link().Attrs().Name)
 			next := g.From(node)[0].(Node)
 			e := g.E(node, next)
-			chain, err := NewIngressChain(e.Chain())
+			chain, err := NewIngressChain(e.Serialize())
 			if err != nil {
 				panic(err)
 			}
 			defer chain.Close()
-			Info.Printf(" %4d: %-11s{%#x}\n", e.FID(), next.Path(), e.Chain())
+			Info.Printf(" %4d: %-11s%s\n", e.F().Ifc(), next.Path(), e)
 			if err := ensureIngressFd(node.Link(), chain.FD()); err != nil {
 				panic(err)
 			}

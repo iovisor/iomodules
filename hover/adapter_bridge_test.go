@@ -20,14 +20,11 @@ import (
 	"testing"
 
 	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netns"
 )
 
-func TestBridgeDetect(t *testing.T) {
-	srv, cleanup := testSetup(t)
-	defer cleanup()
-
-	links, nets, cleanup2 := testNetnsPair(t)
-	defer cleanup2()
+func testBridgeSimpleSetup(t *testing.T) (*netlink.Bridge, []*netlink.Veth, []netns.NsHandle, func()) {
+	links, nets, cleanup := testNetnsPair(t)
 
 	br := &netlink.Bridge{
 		LinkAttrs: netlink.LinkAttrs{
@@ -35,21 +32,36 @@ func TestBridgeDetect(t *testing.T) {
 		},
 	}
 	if err := netlink.LinkAdd(br); err != nil {
+		cleanup()
 		t.Fatal(err)
 	}
-	defer func() {
+
+	cleanup2 := func() {
 		netlink.LinkDel(br)
-	}()
+		cleanup()
+	}
 
 	if err := netlink.LinkSetMaster(links[0], br); err != nil {
+		cleanup2()
 		t.Fatal(err)
 	}
 	if err := netlink.LinkSetMaster(links[1], br); err != nil {
+		cleanup2()
 		t.Fatal(err)
 	}
 	if err := netlink.LinkSetUp(br); err != nil {
+		cleanup2()
 		t.Fatal(err)
 	}
+	return br, links, nets, cleanup2
+}
+
+func TestBridgeDetect(t *testing.T) {
+	srv, cleanup := testSetup(t)
+	defer cleanup()
+
+	br, _, nets, cleanup2 := testBridgeSimpleSetup(t)
+	defer cleanup2()
 
 	testOne(t, testCase{
 		url:    srv.URL + "/modules/b:" + br.Attrs().Name,
@@ -67,4 +79,51 @@ func TestBridgeDetect(t *testing.T) {
 		return nil
 	})
 	wg.Wait()
+}
+
+func TestBridgePolicy(t *testing.T) {
+	srv, cleanup := testSetup(t)
+	defer cleanup()
+
+	br, _, nets, cleanup2 := testBridgeSimpleSetup(t)
+	defer cleanup2()
+
+	testOne(t, testCase{
+		url:    srv.URL + "/modules/b:" + br.Attrs().Name,
+		method: "GET",
+	}, nil)
+
+	var t1 moduleEntry
+	testOne(t, testCase{
+		url:  srv.URL + "/modules/",
+		body: wrapCodePolicy(t, policyC, []string{"b:" + br.Attrs().Name}),
+	}, &t1)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go RunInNs(nets[0], func() error {
+		defer wg.Done()
+		out, err := exec.Command("ping", "-c", "1", "10.10.1.2").Output()
+		if err != nil {
+			t.Error(string(out), err)
+		}
+		return nil
+	})
+	wg.Wait()
+
+	var c1, c2 AdapterTablePair
+	testOne(t, testCase{
+		url:    srv.URL + "/modules/" + t1.Id + "/tables/counters/entries/0x0",
+		method: "GET",
+	}, &c1)
+	if c1.Key != "0x0" || c1.Value == "0x0" {
+		t.Fatalf("Expected counter 1 != 0, got %s", c1.Value)
+	}
+	testOne(t, testCase{
+		url:    srv.URL + "/modules/" + t1.Id + "/tables/counters/entries/0x1",
+		method: "GET",
+	}, &c2)
+	if c2.Key != "0x1" || c2.Value == "0x0" {
+		t.Fatalf("Expected counter 1 != 0, got %s", c2.Value)
+	}
 }

@@ -29,16 +29,13 @@ enum {
 };
 
 struct chain {
-	u32 hops[3];
+	u32 hops[4];
 };
 static inline u16 chain_ifc(struct chain *c, int id) {
 	return c->hops[id] >> 16;
 }
-static inline bool chain_direction(struct chain *c, int id) {
-	return (c->hops[id] >> 15) & 0x1;
-}
 static inline u16 chain_module(struct chain *c, int id) {
-	return c->hops[id] & 0x7fff;
+	return c->hops[id] & 0xffff;
 }
 
 struct type_value {
@@ -88,6 +85,7 @@ int ingress(struct __sk_buff *skb) {
 	skb->cb[0] = CHAIN_VALUE0 >> 16;
 	skb->cb[1] = CHAIN_VALUE1;
 	skb->cb[2] = CHAIN_VALUE2;
+	skb->cb[3] = CHAIN_VALUE3;
 	modules.call(skb, CHAIN_VALUE0 & 0x7fff);
 	//bpf_trace_printk("ingress drop\n");
 	return 2;
@@ -222,6 +220,7 @@ static int forward(struct __sk_buff *skb, int out_ifc) {
 		cur->hops[0] = chain_ifc(next, 0);
 		cur->hops[1] = next->hops[1];
 		cur->hops[2] = next->hops[2];
+		cur->hops[3] = next->hops[3];
 		//bpf_trace_printk("fwd:%d=0x%x %d\n", out_ifc, next->hops[0], chain_module(next, 0));
 		modules.call(skb, chain_module(next, 0));
 	}
@@ -234,7 +233,8 @@ static int chain_pop(struct __sk_buff *skb) {
 	struct chain orig = *cur;
 	cur->hops[0] = chain_ifc(&orig, 1);
 	cur->hops[1] = cur->hops[2];
-	cur->hops[2] = 0;
+	cur->hops[2] = cur->hops[3];
+	cur->hops[3] = 0;
 	if (cur->hops[0]) {
 		modules.call(skb, chain_module(&orig, 1));
 	}

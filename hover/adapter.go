@@ -35,7 +35,7 @@ func NewAdapter(req createModuleRequest, g Graph, id int) (adapter Adapter, err 
 			subtype = parts[1]
 		}
 		a := &BpfAdapter{
-			uuid:    uuid,
+			uuid:    uuid[:8],
 			name:    req.DisplayName,
 			tags:    req.Tags,
 			perm:    PermR | PermW,
@@ -48,7 +48,7 @@ func NewAdapter(req createModuleRequest, g Graph, id int) (adapter Adapter, err 
 		adapter = a
 	case "bridge":
 		a := &BridgeAdapter{
-			uuid:   uuid,
+			uuid:   uuid[:8],
 			name:   req.DisplayName,
 			tags:   req.Tags,
 			perm:   PermR | PermW,
