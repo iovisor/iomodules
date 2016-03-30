@@ -226,7 +226,12 @@ func (s *HoverServer) handleModulePost(r *http.Request) routeResponse {
 	s.adapterEntries.Add(node)
 	node.SetID(id)
 	s.g.AddNode(node)
-	//s.recomputePolicies()
+
+	if err := s.renderer.Provision(s.g, s.nlmon); err != nil {
+		panic(err)
+	}
+
+	s.recomputePolicies()
 	entry := adapterToModuleEntry(adapter)
 	return routeResponse{body: entry}
 }
@@ -257,6 +262,10 @@ func (s *HoverServer) handleModulePut(r *http.Request) routeResponse {
 	}
 
 	if err := node.adapter.SetConfig(req.createModuleRequest, s.g, node.ID()); err != nil {
+		panic(err)
+	}
+
+	if err := s.renderer.Provision(s.g, s.nlmon); err != nil {
 		panic(err)
 	}
 
@@ -487,9 +496,9 @@ func (s *HoverServer) handleLinkPost(r *http.Request) routeResponse {
 }
 
 func (s *HoverServer) recomputePolicies() {
+	DumpDotFile(s.g)
 	s.nlmon.EnsureInterfaces(s.g, s.patchPanel)
 	s.renderer.Run(s.g, s.patchPanel, s.nlmon)
-	DumpDotFile(s.g)
 }
 func (s *HoverServer) handleLinkGet(r *http.Request) routeResponse {
 	return routeResponse{}

@@ -31,7 +31,7 @@ type BridgeAdapter struct {
 }
 
 func (ba *BridgeAdapter) UUID() string   { return ba.uuid }
-func (ba *BridgeAdapter) FD() int        { return 0 }
+func (ba *BridgeAdapter) FD() int        { return -1 }
 func (ba *BridgeAdapter) Tags() []string { return []string{} }
 func (ba *BridgeAdapter) Type() string   { return "bridge" }
 func (ba *BridgeAdapter) Name() string   { return ba.name }

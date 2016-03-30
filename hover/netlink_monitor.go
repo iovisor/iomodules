@@ -74,25 +74,64 @@ func (nm *NetlinkMonitor) Close() {
 	close(nm.done)
 }
 
+func (nm *NetlinkMonitor) handleMasterChange(node *ExtInterface, link netlink.Link) error {
+	newMasterIdx := link.Attrs().MasterIndex
+	if newMasterIdx != node.Link().Attrs().MasterIndex {
+		if newMasterIdx != 0 {
+			// add case
+			masterLink, err := netlink.LinkByIndex(newMasterIdx)
+			if err != nil {
+				return err
+			}
+			master := nm.g.NodeByPath("b:" + masterLink.Attrs().Name)
+			if master != nil {
+				if node.ID() < 0 {
+					node.SetID(nm.g.NewNodeID())
+					nm.g.AddNode(node)
+				}
+				fid, tid := 0, 0
+				nm.g.SetEdge(NewEdgeChain(node, master, &fid, &tid))
+				nm.g.SetEdge(NewEdgeChain(master, node, &tid, &fid))
+			}
+		} else {
+			// remove case
+		}
+	}
+	return nil
+}
+
 func (nm *NetlinkMonitor) handleNewlink(link netlink.Link) {
 	nm.mtx.Lock()
 	defer nm.mtx.Unlock()
 	switch link := link.(type) {
 	case *netlink.Bridge:
-		bridge := &BridgeAdapter{
-			uuid:   link.Attrs().Name,
-			name:   link.Attrs().Name,
-			tags:   []string{},
-			perm:   PermR,
-			config: make(map[string]interface{}),
-			link:   link,
+		if !nm.g.HasPath("b:" + link.Attrs().Name) {
+			bridge := &BridgeAdapter{
+				uuid:   link.Attrs().Name,
+				name:   link.Attrs().Name,
+				tags:   []string{},
+				perm:   PermR,
+				config: make(map[string]interface{}),
+				link:   link,
+			}
+			node := NewAdapterNode(bridge)
+			node.SetID(nm.g.NewNodeID())
+			nm.g.AddNode(node)
 		}
-		node := NewAdapterNode(bridge)
-		node.SetID(nm.g.NewNodeID())
-		nm.g.AddNode(node)
 	default:
-		if _, ok := nm.nodes[link.Attrs().Index]; !ok {
-			nm.nodes[link.Attrs().Index] = NewExtInterface(link)
+		if node, ok := nm.nodes[link.Attrs().Index]; ok {
+			if err := nm.handleMasterChange(node, link); err != nil {
+				Error.Println("Newlink failed master change", err)
+				return
+			}
+			node.SetLink(link)
+		} else {
+			node := NewExtInterface(link)
+			nm.nodes[link.Attrs().Index] = node
+			if err := nm.handleMasterChange(node, link); err != nil {
+				Error.Println("Newlink failed master change", err)
+				return
+			}
 		}
 	}
 }

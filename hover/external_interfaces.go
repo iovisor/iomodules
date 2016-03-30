@@ -24,6 +24,7 @@ import (
 type InterfaceNode interface {
 	Node
 	Link() netlink.Link
+	SetLink(netlink.Link)
 }
 
 type ExtInterface struct {
@@ -63,8 +64,9 @@ func (ifc *ExtInterface) FD() int {
 	return ifc.fd
 }
 
-func (ifc *ExtInterface) Link() netlink.Link { return ifc.link }
-func (ifc *ExtInterface) SetID(id int)       { ifc.id = id }
+func (ifc *ExtInterface) Link() netlink.Link        { return ifc.link }
+func (ifc *ExtInterface) SetLink(link netlink.Link) { ifc.link = link }
+func (ifc *ExtInterface) SetID(id int)              { ifc.id = id }
 
 type IngressChain struct {
 	fd int
@@ -72,15 +74,15 @@ type IngressChain struct {
 
 func NewIngressChain(chain [4]int) (*IngressChain, error) {
 	cflags := []string{
-		fmt.Sprintf("-DCHAIN_VALUE0=0x%x", chain[0]),
-		fmt.Sprintf("-DCHAIN_VALUE1=0x%x", chain[1]),
-		fmt.Sprintf("-DCHAIN_VALUE2=0x%x", chain[2]),
-		fmt.Sprintf("-DCHAIN_VALUE3=0x%x", chain[3]),
+		fmt.Sprintf("-DCHAIN_VALUE0=%#x", chain[0]),
+		fmt.Sprintf("-DCHAIN_VALUE1=%#x", chain[1]),
+		fmt.Sprintf("-DCHAIN_VALUE2=%#x", chain[2]),
+		fmt.Sprintf("-DCHAIN_VALUE3=%#x", chain[3]),
 	}
 	//Debug.Printf("netdev: %v\n", cflags)
 	bpf := NewBpfModule(netdevRxC, cflags)
 	if bpf == nil {
-		return nil, fmt.Errorf("could not compile bpf module for external interface")
+		return nil, fmt.Errorf("NewIngressChain bpf compile failed")
 	}
 	defer bpf.Close()
 	fd, err := bpf.LoadNet("ingress")
@@ -96,3 +98,34 @@ func NewIngressChain(chain [4]int) (*IngressChain, error) {
 
 func (c *IngressChain) Close()  { syscall.Close(c.fd) }
 func (c *IngressChain) FD() int { return c.fd }
+
+type EgressChain struct {
+	fd int
+}
+
+func NewEgressChain(chain [4]int) (*EgressChain, error) {
+	cflags := []string{
+		fmt.Sprintf("-DCHAIN_VALUE0=%#x", chain[0]),
+		fmt.Sprintf("-DCHAIN_VALUE1=%#x", chain[1]),
+		fmt.Sprintf("-DCHAIN_VALUE2=%#x", chain[2]),
+		fmt.Sprintf("-DCHAIN_VALUE3=%#x", chain[3]),
+	}
+	//Debug.Printf("netdev: %v\n", cflags)
+	bpf := NewBpfModule(netdevEgressC, cflags)
+	if bpf == nil {
+		return nil, fmt.Errorf("NewEgressChain bpf compile failed")
+	}
+	defer bpf.Close()
+	fd, err := bpf.LoadNet("egress")
+	if err != nil {
+		return nil, err
+	}
+	fd2, err := syscall.Dup(fd)
+	if err != nil {
+		return nil, err
+	}
+	return &EgressChain{fd: fd2}, nil
+}
+
+func (c *EgressChain) Close()  { syscall.Close(c.fd) }
+func (c *EgressChain) FD() int { return c.fd }

@@ -170,12 +170,14 @@ func (e *EdgeChain) serialize() [4]int {
 	buf := [4]int{}
 	chain := buf[:0]
 	for _, ni := range e.w {
-		if ni.Serialize() == 0 {
+		if ni.Ifc() == 0 {
 			break
 		}
 		chain = append(chain, ni.Serialize())
 	}
-	chain = append(chain, NodeIfc{e.t.ID(), *e.toIfc}.Serialize())
+	if *e.toIfc > 0 {
+		chain = append(chain, NodeIfc{e.t.ID(), *e.toIfc}.Serialize())
+	}
 	return buf
 }
 func (e *EdgeChain) Serialize() [4]int {

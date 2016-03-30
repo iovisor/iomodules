@@ -76,6 +76,7 @@ func computeChainFrom(from, to Node) (chain []NodeIfc) {
 // allocated IDs are stored in newIds so as to be collected in the recover
 // routine.
 func provisionNode(g Graph, this Node, newIds *[]NodeIfc) {
+	Info.Printf("Provisioning %s (%d)\n", this, this.ID())
 	for _, t := range g.From(this) {
 		e := g.E(this, t)
 		target := t.(Node)
@@ -137,7 +138,7 @@ func (h *Renderer) Provision(g Graph, nlmon *NetlinkMonitor) (err error) {
 
 func (h *Renderer) Run(g Graph, pp *PatchPanel, nlmon *NetlinkMonitor) {
 	for _, node := range g.Nodes() {
-		if node, ok := node.(Node); ok {
+		if node, ok := node.(Node); ok && node.FD() >= 0 {
 			pp.modules.Set(strconv.Itoa(node.ID()), strconv.Itoa(node.FD()))
 			//Info.Printf("modules[%d] = %d\n", node.ID(), node.FD())
 		}
@@ -149,17 +150,31 @@ func (h *Renderer) Run(g Graph, pp *PatchPanel, nlmon *NetlinkMonitor) {
 			e := g.E(this, t)
 			adapter := this.(*AdapterNode).adapter
 			target := t.(Node)
-			fc := adapter.Table("forward_chain")
-			if fc == nil {
-				panic(fmt.Errorf("Could not find forward_chain in adapter"))
+			if adapter.Type() == "bridge" {
+				if target, ok := target.(*ExtInterface); ok {
+					chain, err := NewEgressChain(e.Serialize())
+					if err != nil {
+						panic(err)
+					}
+					defer chain.Close()
+					Info.Printf(" %4d: %-11s%s\n", e.F().Ifc(), target.Path(), e)
+					if err := ensureEgressFd(target.Link(), chain.FD()); err != nil {
+						panic(err)
+					}
+				}
+			} else {
+				fc := adapter.Table("forward_chain")
+				if fc == nil {
+					panic(fmt.Errorf("Could not find forward_chain in adapter"))
+				}
+				key := fmt.Sprintf("%d", e.F().Ifc())
+				val := fmt.Sprintf("{%#x}", e.Serialize())
+				Info.Printf(" %4s: %-11s%s\n", key, target.Path(), val)
+				if err := fc.Set(key, val); err != nil {
+					panic(err)
+				}
+				//Debug.Printf(" %s:%d -> %s:%d\n", this.Path(), i, target.Path(), target.ID())
 			}
-			key := fmt.Sprintf("%d", e.F().Ifc())
-			val := fmt.Sprintf("{%#x}", e.Serialize())
-			Info.Printf(" %4s: %-11s%s\n", key, target.Path(), val)
-			if err := fc.Set(key, val); err != nil {
-				panic(err)
-			}
-			//Debug.Printf(" %s:%d -> %s:%d\n", this.Path(), i, target.Path(), target.ID())
 		}
 	}
 	t := NewDepthFirst(visitFn, filterInterfaceNode)
