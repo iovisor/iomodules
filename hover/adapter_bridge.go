@@ -30,7 +30,7 @@ type BridgeAdapter struct {
 	link   *netlink.Bridge
 }
 
-func (ba *BridgeAdapter) UUID() string   { return ba.uuid }
+func (ba *BridgeAdapter) UUID() string   { return "b:" + ba.uuid }
 func (ba *BridgeAdapter) FD() int        { return -1 }
 func (ba *BridgeAdapter) Tags() []string { return []string{} }
 func (ba *BridgeAdapter) Type() string   { return "bridge" }

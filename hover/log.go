@@ -15,7 +15,7 @@
 package hover
 
 import (
-	_ "io/ioutil"
+	"io/ioutil"
 	"log"
 	"os"
 )
@@ -28,7 +28,7 @@ var (
 )
 
 func logInit() {
-	Debug = log.New(os.Stdout, "DBG: ", log.Ldate|log.Ltime|log.Lshortfile)
+	Debug = log.New(ioutil.Discard, "DBG: ", log.Ldate|log.Ltime|log.Lshortfile)
 	Info = log.New(os.Stdout, "INF: ", log.Ldate|log.Ltime)
 	Warn = log.New(os.Stdout, "WRN: ", log.Ldate|log.Ltime)
 	Error = log.New(os.Stderr, "ERR: ", log.Ldate|log.Ltime)

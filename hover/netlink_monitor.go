@@ -89,6 +89,7 @@ func (nm *NetlinkMonitor) handleMasterChange(node *ExtInterface, link netlink.Li
 					node.SetID(nm.g.NewNodeID())
 					nm.g.AddNode(node)
 				}
+				// set to 0 so that the normal egress path is taken
 				fid, tid := 0, 0
 				nm.g.SetEdge(NewEdgeChain(node, master, &fid, &tid))
 				nm.g.SetEdge(NewEdgeChain(master, node, &tid, &fid))

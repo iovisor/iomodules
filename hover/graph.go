@@ -75,15 +75,8 @@ type AdapterNode struct {
 }
 
 func NewAdapterNode(adapter Adapter) *AdapterNode {
-	var prefix string
-	switch adapter.(type) {
-	case *BridgeAdapter:
-		prefix = "b:"
-	default:
-		prefix = "m:"
-	}
 	return &AdapterNode{
-		NodeBase: NewNodeBase(-1, adapter.FD(), adapter.UUID(), prefix, MAX_INTERFACES),
+		NodeBase: NewNodeBase(-1, adapter.FD(), adapter.UUID(), "", MAX_INTERFACES),
 		adapter:  adapter,
 	}
 }
@@ -238,10 +231,12 @@ func (g *DirectedGraph) HasPath(path string) bool {
 }
 
 func (g *DirectedGraph) AddNode(node graph.Node) {
+	Debug.Printf("AddNode %s\n", node.(Node).Path())
 	g.DirectedGraph.AddNode(node)
 	g.paths[node.(Node).Path()] = node.ID()
 }
 func (g *DirectedGraph) RemoveNode(node graph.Node) {
+	Debug.Printf("RemoveNode %s\n", node.(Node).Path())
 	g.DirectedGraph.RemoveNode(node)
 	delete(g.paths, node.(Node).Path())
 }

@@ -72,6 +72,8 @@ func (adapter *BpfAdapter) SetConfig(req createModuleRequest, g Graph, id int) e
 		for _, tag := range adapter.tags {
 			if node := g.NodeByPath(tag); node != nil {
 				node.Groups().Insert(id)
+			} else {
+				Warn.Printf("Could not find %s for policy\n", tag)
 			}
 		}
 	case adapter.subtype == "forward":
@@ -80,7 +82,7 @@ func (adapter *BpfAdapter) SetConfig(req createModuleRequest, g Graph, id int) e
 }
 
 func (adapter *BpfAdapter) Config() map[string]interface{} { return adapter.config }
-func (adapter *BpfAdapter) UUID() string                   { return adapter.uuid }
+func (adapter *BpfAdapter) UUID() string                   { return "m:" + adapter.uuid }
 func (adapter *BpfAdapter) FD() int                        { return adapter.fd }
 
 func (adapter *BpfAdapter) Init() error {

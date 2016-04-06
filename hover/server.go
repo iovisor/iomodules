@@ -46,7 +46,7 @@ type HoverServer struct {
 type handlerFunc func(r *http.Request) routeResponse
 
 func makeHandler(fn handlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, rq *http.Request) {
 		defer func() {
 			if r := recover(); r != nil {
 				switch err := r.(type) {
@@ -57,10 +57,12 @@ func makeHandler(fn handlerFunc) http.HandlerFunc {
 				// coming from fmt.Errorf from our own package
 				case error:
 					Error.Println(err.Error())
+					Info.Printf("%s %s %d\n", rq.Method, rq.URL, http.StatusBadRequest)
 					http.Error(w, err.Error(), http.StatusBadRequest)
 				// coming from a helper library that doesn't use fmt.Errorf()
 				case string:
 					Error.Println(r)
+					Info.Printf("%s %s %d\n", rq.Method, rq.URL, http.StatusBadRequest)
 					http.Error(w, "Internal error", http.StatusBadRequest)
 				// ??
 				default:
@@ -70,9 +72,9 @@ func makeHandler(fn handlerFunc) http.HandlerFunc {
 			}
 		}()
 
-		rsp := fn(r)
-		sendReply(w, r, &rsp)
-		Info.Printf("%s %s %d\n", r.Method, r.URL, rsp.statusCode)
+		rsp := fn(rq)
+		sendReply(w, rq, &rsp)
+		Info.Printf("%s %s %d\n", rq.Method, rq.URL, rsp.statusCode)
 		return
 	}
 }
@@ -432,9 +434,9 @@ func (s *HoverServer) lookupNode(nodePath string) Node {
 		}
 		return node
 	case "m", "modules":
-		node, ok := s.adapterEntries[parts[1]]
+		node, ok := s.adapterEntries[nodePath]
 		if !ok {
-			panic(fmt.Errorf("Module %q not found", parts[1]))
+			panic(fmt.Errorf("Module %q not found", nodePath))
 		}
 		return s.g.Node(node.ID())
 	default:
