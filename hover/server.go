@@ -451,7 +451,7 @@ type linkEntry struct {
 }
 
 func (s *HoverServer) handleLinkList(r *http.Request) routeResponse {
-	var edges []linkEntry
+	edges := []linkEntry{}
 	visitFn := func(u, v graph.Node) {
 		e := s.g.Edge(u, v).(Edge)
 		edges = append(edges, linkEntry{e.From().(Node).Path(), e.To().(Node).Path()})

@@ -74,26 +74,48 @@ func (nm *NetlinkMonitor) Close() {
 	close(nm.done)
 }
 
-func (nm *NetlinkMonitor) handleMasterChange(node *ExtInterface, link netlink.Link) error {
+func (nm *NetlinkMonitor) ensureBridge(link *netlink.Bridge) Node {
+	b := nm.g.NodeByPath("b:" + link.Attrs().Name)
+	if b == nil {
+		adapter := &BridgeAdapter{
+			uuid:   link.Attrs().Name,
+			name:   link.Attrs().Name,
+			tags:   []string{},
+			perm:   PermR,
+			config: make(map[string]interface{}),
+			link:   link,
+		}
+		node := NewAdapterNode(adapter)
+		node.SetID(nm.g.NewNodeID())
+		nm.g.AddNode(node)
+		b = node
+	}
+	return b
+}
+
+func (nm *NetlinkMonitor) handleMasterChange(node *ExtInterface, link netlink.Link, isAdd bool) error {
 	newMasterIdx := link.Attrs().MasterIndex
-	if newMasterIdx != node.Link().Attrs().MasterIndex {
+	Debug.Printf("link %s master %d\n", node.Link().Attrs().Name, newMasterIdx)
+	if newMasterIdx != node.Link().Attrs().MasterIndex || isAdd {
 		if newMasterIdx != 0 {
 			// add case
 			masterLink, err := netlink.LinkByIndex(newMasterIdx)
 			if err != nil {
 				return err
 			}
-			master := nm.g.NodeByPath("b:" + masterLink.Attrs().Name)
-			if master != nil {
-				if node.ID() < 0 {
-					node.SetID(nm.g.NewNodeID())
-					nm.g.AddNode(node)
-				}
-				// set to 0 so that the normal egress path is taken
-				fid, tid := 0, 0
-				nm.g.SetEdge(NewEdgeChain(node, master, &fid, &tid))
-				nm.g.SetEdge(NewEdgeChain(master, node, &tid, &fid))
+			bridge, ok := masterLink.(*netlink.Bridge)
+			if !ok {
+				return fmt.Errorf("unsupported non-bridge master")
 			}
+			master := nm.ensureBridge(bridge)
+			if node.ID() < 0 {
+				node.SetID(nm.g.NewNodeID())
+				nm.g.AddNode(node)
+			}
+			// set to 0 so that the normal egress path is taken
+			fid, tid := 0, 0
+			nm.g.SetEdge(NewEdgeChain(node, master, &fid, &tid))
+			nm.g.SetEdge(NewEdgeChain(master, node, &tid, &fid))
 		} else {
 			// remove case
 		}
@@ -106,22 +128,10 @@ func (nm *NetlinkMonitor) handleNewlink(link netlink.Link) {
 	defer nm.mtx.Unlock()
 	switch link := link.(type) {
 	case *netlink.Bridge:
-		if !nm.g.HasPath("b:" + link.Attrs().Name) {
-			bridge := &BridgeAdapter{
-				uuid:   link.Attrs().Name,
-				name:   link.Attrs().Name,
-				tags:   []string{},
-				perm:   PermR,
-				config: make(map[string]interface{}),
-				link:   link,
-			}
-			node := NewAdapterNode(bridge)
-			node.SetID(nm.g.NewNodeID())
-			nm.g.AddNode(node)
-		}
+		nm.ensureBridge(link)
 	default:
 		if node, ok := nm.nodes[link.Attrs().Index]; ok {
-			if err := nm.handleMasterChange(node, link); err != nil {
+			if err := nm.handleMasterChange(node, link, false); err != nil {
 				Error.Println("Newlink failed master change", err)
 				return
 			}
@@ -129,7 +139,7 @@ func (nm *NetlinkMonitor) handleNewlink(link netlink.Link) {
 		} else {
 			node := NewExtInterface(link)
 			nm.nodes[link.Attrs().Index] = node
-			if err := nm.handleMasterChange(node, link); err != nil {
+			if err := nm.handleMasterChange(node, link, true); err != nil {
 				Error.Println("Newlink failed master change", err)
 				return
 			}
