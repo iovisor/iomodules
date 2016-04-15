@@ -32,7 +32,12 @@ type BpfAdapter struct {
 	subtype string
 }
 
-func (adapter *BpfAdapter) Type() string   { return "bpf" }
+func (adapter *BpfAdapter) Type() string {
+	if adapter.subtype != "" {
+		return "bpf/" + adapter.subtype
+	}
+	return "bpf"
+}
 func (adapter *BpfAdapter) Name() string   { return adapter.name }
 func (adapter *BpfAdapter) Tags() []string { return adapter.tags }
 func (adapter *BpfAdapter) Perm() uint     { return adapter.perm }
