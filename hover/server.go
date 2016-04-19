@@ -87,6 +87,7 @@ func notFound() routeResponse {
 }
 
 func sendReply(w http.ResponseWriter, r *http.Request, rsp *routeResponse) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if rsp.body != nil {
 		if len(rsp.contentType) != 0 {
 			w.Header().Set("Content-Type", rsp.contentType)
