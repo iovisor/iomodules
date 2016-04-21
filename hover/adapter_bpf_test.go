@@ -138,7 +138,11 @@ func TestModuleConnect(t *testing.T) {
 		url:  srv.URL + "/modules/",
 		body: wrapCode(t, trivialC, []string{}),
 	}, &t2)
-	testLinkModules(t, srv, t1.Id, t2.Id)
+	l1 := testLinkModules(t, srv, t1.Id, t2.Id)
+	testOne(t, testCase{
+		url:    srv.URL + "/links/" + l1,
+		method: "DELETE",
+	}, nil)
 }
 
 func testSetTableEntry(t *testing.T, srv *httptest.Server, modId, tblName string, k, v interface{}) {
@@ -168,7 +172,7 @@ func TestModuleRedirect(t *testing.T) {
 	}, &t2)
 
 	Info.Printf("module id = %s\n", t1.Id)
-	testLinkModules(t, srv, t1.Id, "i:"+links[0].Name)
+	l1 := testLinkModules(t, srv, t1.Id, "i:"+links[0].Name)
 	testLinkModules(t, srv, t1.Id, t2.Id)
 	testLinkModules(t, srv, "i:"+links[1].Name, t2.Id)
 
@@ -187,6 +191,11 @@ func TestModuleRedirect(t *testing.T) {
 		return nil
 	})
 	wg.Wait()
+
+	testOne(t, testCase{
+		url:    srv.URL + "/links/" + l1,
+		method: "DELETE",
+	}, nil)
 }
 
 type policyEntry struct {
@@ -216,21 +225,25 @@ func TestModulePolicy(t *testing.T) {
 
 	var t1, t2 moduleEntry
 
+	// create a redirect bpf/forward module
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
 		body: wrapCode(t, redirectC, []string{}),
 	}, &t2)
 	Info.Printf("Forward module id=%s\n", t2.Id)
 
+	// create a allow and count bpf/policy module
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
 		body: wrapCodePolicy(t, policyC, []string{t2.Id}),
 	}, &t1)
 	Info.Printf("Policy module id=%s\n", t1.Id)
 
+	// populate entries in the redirect bpf table
 	testSetTableEntry(t, srv, t2.Id, "redirect", 1, 2)
 	testSetTableEntry(t, srv, t2.Id, "redirect", 2, 1)
 
+	// create ns1 <-> t2 <-> ns2
 	testLinkModules(t, srv, "i:"+l1.Name, t2.Id)
 	testLinkModules(t, srv, t2.Id, "i:"+l2.Name)
 

@@ -37,16 +37,8 @@ type PatchPanel struct {
 }
 
 func NewPatchPanel() (pp *PatchPanel, err error) {
-	var id string
-	id, err = NewUUID4()
-	if err != nil {
-		return
-	}
+	id := NewUUID4()
 
-	if err != nil {
-		Warn.Print(err)
-		return
-	}
 	pp = &PatchPanel{}
 	defer func() {
 		if err != nil {

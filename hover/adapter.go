@@ -22,10 +22,7 @@ import (
 )
 
 func NewAdapter(req createModuleRequest, g Graph, id int) (adapter Adapter, err error) {
-	uuid, err := NewUUID4()
-	if err != nil {
-		return
-	}
+	uuid := NewUUID4()
 
 	parts := strings.SplitN(req.ModuleType, "/", 2)
 	switch parts[0] {

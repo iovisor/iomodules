@@ -182,7 +182,7 @@ func getRequestVar(r *http.Request, key string) string {
 	}
 	value, ok := vars[key]
 	if !ok {
-		panic(fmt.Errorf("Missing parameter moduleId in request"))
+		panic(fmt.Errorf("Missing parameter %s in request", key))
 	}
 	return value
 }
@@ -230,10 +230,6 @@ func (s *HoverServer) handleModulePost(r *http.Request) routeResponse {
 	node.SetID(id)
 	s.g.AddNode(node)
 
-	if err := s.renderer.Provision(s.g, s.nlmon); err != nil {
-		panic(err)
-	}
-
 	s.recomputePolicies()
 	entry := adapterToModuleEntry(adapter)
 	return routeResponse{body: entry}
@@ -265,10 +261,6 @@ func (s *HoverServer) handleModulePut(r *http.Request) routeResponse {
 	}
 
 	if err := node.adapter.SetConfig(req.createModuleRequest, s.g, node.ID()); err != nil {
-		panic(err)
-	}
-
-	if err := s.renderer.Provision(s.g, s.nlmon); err != nil {
 		panic(err)
 	}
 
@@ -447,6 +439,7 @@ func (s *HoverServer) lookupNode(nodePath string) Node {
 }
 
 type linkEntry struct {
+	Id   string `json:"id"`
 	From string `json:"from"`
 	To   string `json:"to"`
 }
@@ -455,7 +448,11 @@ func (s *HoverServer) handleLinkList(r *http.Request) routeResponse {
 	edges := []linkEntry{}
 	visitFn := func(u, v graph.Node) {
 		e := s.g.Edge(u, v).(Edge)
-		edges = append(edges, linkEntry{e.From().(Node).Path(), e.To().(Node).Path()})
+		edges = append(edges, linkEntry{
+			Id:   e.ID(),
+			From: e.From().(Node).Path(),
+			To:   e.To().(Node).Path(),
+		})
 	}
 	t := &traverse.BreadthFirst{Visit: visitFn}
 	for _, node := range s.nlmon.Interfaces() {
@@ -484,32 +481,75 @@ func (s *HoverServer) handleLinkPost(r *http.Request) routeResponse {
 		s.g.AddNode(to)
 	}
 	fid, tid := -1, -1
-	s.g.SetEdge(NewEdgeChain(from, to, &fid, &tid))
-	s.g.SetEdge(NewEdgeChain(to, from, &tid, &fid))
+	e1 := NewEdgeChain(from, to, &fid, &tid)
+	s.g.SetEdge(e1)
+	e2 := NewEdgeChain(to, from, &tid, &fid)
+	s.g.SetEdge(e2)
 
-	if err := s.renderer.Provision(s.g, s.nlmon); err != nil {
-		panic(err)
-	}
-
-	//Debug.Printf("fromto(%d.%d):%#x, tofrom(%d.%d):%#x\n", from.ID(), fromID, ft, to.ID(), toID, tf)
-	//s.g.SetEdge(NewEdgeChain(from, to, ft, fromID, toID))
-	//s.g.SetEdge(NewEdgeChain(to, from, tf, toID, fromID))
 	s.recomputePolicies()
-	return routeResponse{}
+	return routeResponse{body: linkEntry{
+		Id:   e1.ID(),
+		From: e1.From().(Node).Path(),
+		To:   e1.To().(Node).Path(),
+	}}
 }
 
 func (s *HoverServer) recomputePolicies() {
+	if err := s.renderer.Provision(s.g, s.nlmon); err != nil {
+		panic(err)
+	}
 	DumpDotFile(s.g)
 	s.nlmon.EnsureInterfaces(s.g, s.patchPanel)
 	s.renderer.Run(s.g, s.patchPanel, s.nlmon)
 }
+
+func (s *HoverServer) edgeLookup(id string) Edge {
+	a, b, err := encrypter.DecodePair(id)
+	if err != nil {
+		Warn.Printf("edge id decode failed: %s", err)
+		return nil
+	}
+	from, to := s.g.Node(a), s.g.Node(b)
+	if from == nil || to == nil {
+		return nil
+	}
+
+	e := s.g.Edge(from, to)
+	if e == nil {
+		return nil
+	}
+	return e.(Edge)
+}
+
 func (s *HoverServer) handleLinkGet(r *http.Request) routeResponse {
-	return routeResponse{}
+	id := getRequestVar(r, "linkId")
+	e := s.edgeLookup(id)
+	if e == nil {
+		return notFound()
+	}
+	return routeResponse{body: linkEntry{
+		Id:   e.ID(),
+		From: e.From().(Node).Path(),
+		To:   e.To().(Node).Path(),
+	}}
 }
 func (s *HoverServer) handleLinkPut(r *http.Request) routeResponse {
 	return notFound()
 }
 func (s *HoverServer) handleLinkDelete(r *http.Request) routeResponse {
+	id := getRequestVar(r, "linkId")
+	e := s.edgeLookup(id)
+	if e == nil {
+		return notFound()
+	}
+	e.MarkDeleted()
+	e = s.g.Edge(e.To(), e.From()).(Edge)
+	if e != nil {
+		// remove also the reverse
+		e.MarkDeleted()
+	}
+
+	s.recomputePolicies()
 	return routeResponse{}
 }
 
@@ -582,9 +622,9 @@ func NewServer() *HoverServer {
 	lnk := rtr.PathPrefix("/links").Subrouter()
 	lnk.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleLinkList))
 	lnk.Methods("POST").Path("/").HandlerFunc(makeHandler(s.handleLinkPost))
-	lnk.Methods("GET").Path("/{connId}").HandlerFunc(makeHandler(s.handleLinkGet))
-	lnk.Methods("PUT").Path("/{connId}").HandlerFunc(makeHandler(s.handleLinkPut))
-	lnk.Methods("DELETE").Path("/{connId}").HandlerFunc(makeHandler(s.handleLinkDelete))
+	lnk.Methods("GET").Path("/{linkId}").HandlerFunc(makeHandler(s.handleLinkGet))
+	lnk.Methods("PUT").Path("/{linkId}").HandlerFunc(makeHandler(s.handleLinkPut))
+	lnk.Methods("DELETE").Path("/{linkId}").HandlerFunc(makeHandler(s.handleLinkDelete))
 
 	ext := rtr.PathPrefix("/external_interfaces").Subrouter()
 	ext.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleExternalInterfaceList))

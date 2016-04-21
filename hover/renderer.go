@@ -175,6 +175,9 @@ func (h *Renderer) Run(g Graph, pp *PatchPanel, nlmon *NetlinkMonitor) {
 				}
 				//Debug.Printf(" %s:%d -> %s:%d\n", this.Path(), i, target.Path(), target.ID())
 			}
+			if e.IsDeleted() {
+				g.RemoveEdge(e)
+			}
 		}
 	}
 	t := NewDepthFirst(visitFn, filterInterfaceNode)

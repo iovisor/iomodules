@@ -78,14 +78,16 @@ func testNetnsPair(t *testing.T) ([]*netlink.Veth, []netns.NsHandle, func()) {
 	return []*netlink.Veth{l1, l2}, []netns.NsHandle{testns1, testns2}, cleanup
 }
 
-func testLinkModules(t *testing.T, srv *httptest.Server, from, to string) {
+func testLinkModules(t *testing.T, srv *httptest.Server, from, to string) string {
+	var l linkEntry
 	testOne(t, testCase{
 		url: srv.URL + "/links/",
 		body: testWrapObject(t, map[string]interface{}{
 			"from": from,
 			"to":   to,
 		}),
-	}, nil)
+	}, &l)
+	return l.Id
 }
 
 func testOne(t *testing.T, test testCase, rsp interface{}) {

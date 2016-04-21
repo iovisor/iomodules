@@ -101,18 +101,23 @@ type Edge interface {
 	Update([]NodeIfc, int, int) bool
 	ChainEquals([]NodeIfc) bool
 	Serialize() [4]int
-	IsDirty() bool
+	ID() string
+	MarkDeleted()
+	IsDeleted() bool
 }
 
 type EdgeChain struct {
+	id             string
 	f, t           Node
 	w              [3]NodeIfc
 	fromIfc, toIfc *int
 	dirty          bool
+	deleted        bool
 }
 
 func NewEdgeChain(f, t Node, fp, tp *int) *EdgeChain {
 	return &EdgeChain{
+		id:      encrypter.EncodePair(f.ID(), t.ID()),
 		f:       f,
 		t:       t,
 		w:       [3]NodeIfc{},
@@ -120,12 +125,14 @@ func NewEdgeChain(f, t Node, fp, tp *int) *EdgeChain {
 		toIfc:   tp,
 	}
 }
+func (e *EdgeChain) ID() string       { return e.id }
 func (e *EdgeChain) From() graph.Node { return e.f }
 func (e *EdgeChain) To() graph.Node   { return e.t }
 func (e *EdgeChain) F() NodeIfc       { return NodeIfc{e.f.ID(), *e.fromIfc} }
 func (e *EdgeChain) T() NodeIfc       { return NodeIfc{e.t.ID(), *e.toIfc} }
 func (e *EdgeChain) Weight() float64  { return float64(2) }
-func (e *EdgeChain) IsDirty() bool    { return e.dirty }
+func (e *EdgeChain) MarkDeleted()     { e.deleted = true }
+func (e *EdgeChain) IsDeleted() bool  { return e.deleted }
 
 func (e *EdgeChain) ChainEquals(dst []NodeIfc) bool {
 	if len(e.w) != len(dst) {
@@ -161,6 +168,9 @@ func (e *EdgeChain) Update(chain []NodeIfc, fromIfc, toIfc int) bool {
 
 func (e *EdgeChain) serialize() [4]int {
 	buf := [4]int{}
+	if e.deleted {
+		return buf
+	}
 	chain := buf[:0]
 	for _, ni := range e.w {
 		if ni.Ifc() == 0 {
@@ -183,8 +193,11 @@ func (e *EdgeChain) String() string {
 }
 
 type Graph interface {
-	graph.DirectedBuilder
+	graph.Directed
+	graph.NodeAdder
 	graph.NodeRemover
+	SetEdge(Edge)
+	RemoveEdge(Edge)
 	Degree(graph.Node) int
 	Node(int) Node
 	E(u, v graph.Node) Edge
@@ -228,6 +241,13 @@ func (g *DirectedGraph) HasPath(path string) bool {
 		return g.Has(simple.Node(id))
 	}
 	return false
+}
+
+func (g *DirectedGraph) SetEdge(e Edge) {
+	g.DirectedGraph.SetEdge(e)
+}
+func (g *DirectedGraph) RemoveEdge(e Edge) {
+	g.DirectedGraph.RemoveEdge(e)
 }
 
 func (g *DirectedGraph) AddNode(node graph.Node) {
