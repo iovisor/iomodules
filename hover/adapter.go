@@ -33,8 +33,6 @@ func NewAdapter(req createModuleRequest, g Graph, id int) (adapter Adapter, err 
 		}
 		a := &BpfAdapter{
 			uuid:    uuid[:8],
-			name:    req.DisplayName,
-			tags:    req.Tags,
 			perm:    PermR | PermW,
 			config:  make(map[string]interface{}),
 			subtype: subtype,

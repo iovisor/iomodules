@@ -277,6 +277,7 @@ func (s *HoverServer) handleModuleDelete(r *http.Request) routeResponse {
 	node.adapter.Close()
 	delete(s.adapterEntries, id)
 	s.g.RemoveNode(node)
+	s.recomputePolicies()
 	return routeResponse{}
 }
 

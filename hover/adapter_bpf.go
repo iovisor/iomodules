@@ -57,6 +57,9 @@ func (adapter *BpfAdapter) SetConfig(req createModuleRequest, g Graph, id int) e
 	}
 	cflags := []string{"-DMODULE_UUID_SHORT=\"" + adapter.uuid[:8] + "\""}
 
+	adapter.name = req.DisplayName
+	adapter.tags = req.Tags
+
 	if orig, ok := adapter.config["code"]; ok {
 		if orig != code {
 			return fmt.Errorf("BPF code update not supported")
@@ -74,6 +77,9 @@ func (adapter *BpfAdapter) SetConfig(req createModuleRequest, g Graph, id int) e
 	}
 	switch {
 	case adapter.subtype == "policy":
+		for _, node := range g.Nodes() {
+			node.(Node).Groups().Remove(id)
+		}
 		for _, tag := range adapter.tags {
 			if node := g.NodeByPath(tag); node != nil {
 				node.Groups().Insert(id)

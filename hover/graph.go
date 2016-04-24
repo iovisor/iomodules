@@ -150,6 +150,9 @@ func (e *EdgeChain) Update(chain []NodeIfc, fromIfc, toIfc int) bool {
 		if len(chain) > len(e.w) {
 			panic("EdgeChain.Update: chain too long")
 		}
+		for i, _ := range e.w {
+			e.w[i] = NodeIfc{}
+		}
 		for i, v := range chain {
 			e.w[i] = v
 		}
