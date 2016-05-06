@@ -225,6 +225,9 @@ func (nm *NetlinkMonitor) EnsureInterfaces(g Graph, pp *PatchPanel) {
 			//Debug.Printf("Adding ingress for %s\n", node.Link().Attrs().Name)
 			next := g.From(node)[0].(Node)
 			e := g.E(node, next)
+			if e.Serialize()[0] == 0 {
+				continue
+			}
 			chain, err := NewIngressChain(e.Serialize())
 			if err != nil {
 				panic(err)

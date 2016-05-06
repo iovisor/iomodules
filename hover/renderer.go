@@ -152,6 +152,9 @@ func (h *Renderer) Run(g Graph, pp *PatchPanel, nlmon *NetlinkMonitor) {
 			target := t.(Node)
 			if adapter.Type() == "bridge" {
 				if target, ok := target.(*ExtInterface); ok {
+					if e.Serialize()[0] == 0 {
+						continue
+					}
 					chain, err := NewEgressChain(e.Serialize())
 					if err != nil {
 						panic(err)
