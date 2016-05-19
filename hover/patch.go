@@ -72,14 +72,13 @@ func (p *PatchPanel) Close() {
 	}
 }
 
-func ensureQdisc(link netlink.Link) (netlink.Qdisc, error) {
-	qHandle := netlink.MakeHandle(0xffff, 0)
+func ensureQdisc(link netlink.Link, qdiscType string, handle, parent uint32) (netlink.Qdisc, error) {
 	qds, err := netlink.QdiscList(link)
 	if err != nil {
 		return nil, err
 	}
 	for _, q := range qds {
-		if q.Attrs().Handle == qHandle {
+		if q.Attrs().Handle == handle {
 			//Debug.Printf("Found existing ingress qdisc %x\n", q.Attrs().Handle)
 			return q, nil
 		}
@@ -87,10 +86,10 @@ func ensureQdisc(link netlink.Link) (netlink.Qdisc, error) {
 	qdisc := &netlink.GenericQdisc{
 		QdiscAttrs: netlink.QdiscAttrs{
 			LinkIndex: link.Attrs().Index,
-			Handle:    qHandle,
-			Parent:    netlink.HANDLE_CLSACT,
+			Handle:    handle,
+			Parent:    parent,
 		},
-		QdiscType: "clsact",
+		QdiscType: qdiscType,
 	}
 	if err := netlink.QdiscAdd(qdisc); err != nil {
 		return nil, fmt.Errorf("failed ensuring qdisc: %v", err)
@@ -99,29 +98,32 @@ func ensureQdisc(link netlink.Link) (netlink.Qdisc, error) {
 }
 
 func ensureIngressFd(link netlink.Link, fd int) error {
-	_, err := ensureQdisc(link)
+	q, err := ensureQdisc(link, "ingress", netlink.MakeHandle(0xffff, 0), netlink.HANDLE_INGRESS)
 	if err != nil {
 		return err
 	}
 	fHandle := netlink.MakeHandle(0, 1)
-	filter := &netlink.BpfFilter{
+	filter := &netlink.U32{
 		FilterAttrs: netlink.FilterAttrs{
 			LinkIndex: link.Attrs().Index,
-			Parent:    netlink.HANDLE_MIN_INGRESS,
-			Handle:    fHandle,
+			Parent:    q.Attrs().Handle,
 			Priority:  1,
 			Protocol:  syscall.ETH_P_ALL,
 		},
-		Fd:           fd,
-		DirectAction: true,
+		Actions: []netlink.Action{
+			&netlink.BpfAction{Fd: fd, Name: "bpf1"},
+		},
+		ClassId: fHandle,
 	}
 	filters, err := netlink.FilterList(link, netlink.HANDLE_MIN_INGRESS)
 	if err != nil {
 		return fmt.Errorf("failed fetching ingress filter list: %s", err)
 	}
 	for _, f := range filters {
-		if f.Attrs().Handle == fHandle {
-			return nil
+		if f, ok := f.(*netlink.U32); ok {
+			if f.ClassId == fHandle {
+				return nil
+			}
 		}
 	}
 	if err := netlink.FilterAdd(filter); err != nil {
@@ -132,29 +134,32 @@ func ensureIngressFd(link netlink.Link, fd int) error {
 }
 
 func ensureEgressFd(link netlink.Link, fd int) error {
-	_, err := ensureQdisc(link)
+	q, err := ensureQdisc(link, "fq_codel", netlink.MakeHandle(1, 0), netlink.HANDLE_ROOT)
 	if err != nil {
 		return err
 	}
 	fHandle := netlink.MakeHandle(0, 2)
-	filter := &netlink.BpfFilter{
+	filter := &netlink.U32{
 		FilterAttrs: netlink.FilterAttrs{
 			LinkIndex: link.Attrs().Index,
-			Parent:    netlink.HANDLE_MIN_EGRESS,
-			Handle:    fHandle,
+			Parent:    q.Attrs().Handle,
 			Priority:  1,
 			Protocol:  syscall.ETH_P_ALL,
 		},
-		Fd:           fd,
-		DirectAction: true,
+		Actions: []netlink.Action{
+			&netlink.BpfAction{Fd: fd, Name: "bpf1"},
+		},
+		ClassId: fHandle,
 	}
 	filters, err := netlink.FilterList(link, netlink.HANDLE_MIN_EGRESS)
 	if err != nil {
 		return fmt.Errorf("failed fetching egress filter list: %s", err)
 	}
 	for _, f := range filters {
-		if f.Attrs().Handle == fHandle {
-			return nil
+		if f, ok := f.(*netlink.U32); ok {
+			if f.ClassId == fHandle {
+				return nil
+			}
 		}
 	}
 	if err := netlink.FilterAdd(filter); err != nil {

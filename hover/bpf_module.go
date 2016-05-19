@@ -117,7 +117,7 @@ func (bpf *BpfModule) initTxHandler() (int, error) {
 }
 
 func (bpf *BpfModule) LoadNet(name string) (int, error) {
-	return bpf.Load(name, C.BPF_PROG_TYPE_SCHED_CLS)
+	return bpf.Load(name, C.BPF_PROG_TYPE_SCHED_ACT)
 }
 func (bpf *BpfModule) LoadKprobe(name string) (int, error) {
 	return bpf.Load(name, C.BPF_PROG_TYPE_KPROBE)
