@@ -132,6 +132,9 @@ func (table *BpfTable) Get(keyStr string) (interface{}, bool) {
 }
 
 func (table *BpfTable) Set(keyStr, leafStr string) error {
+	if table == nil || table.module.p == nil {
+		panic("table is nil")
+	}
 	fd := C.bpf_table_fd_id(table.module.p, table.id)
 	key, err := table.keyToBytes(keyStr)
 	if err != nil {

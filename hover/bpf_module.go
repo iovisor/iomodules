@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"regexp"
 	"runtime"
+	"sync"
 	"syscall"
 	"unsafe"
 )
@@ -39,23 +40,33 @@ type BpfModule struct {
 	kprobes map[string]unsafe.Pointer
 }
 
+type compileRequest struct {
+	code   string
+	cflags []string
+	rspCh  chan *BpfModule
+}
+
 var (
 	defaultCflags  []string
 	MAX_MODULES    uint = 1024
 	MAX_INTERFACES uint = 128
+	compileCh      chan compileRequest
+	bpfInitOnce    sync.Once
 )
 
-func init() {
+func bpfInit() {
 	defaultCflags = []string{
 		fmt.Sprintf("-DNUMCPUS=%d", runtime.NumCPU()),
 		fmt.Sprintf("-DMAX_INTERFACES=%d", MAX_INTERFACES),
 		fmt.Sprintf("-DMAX_MODULES=%d", MAX_MODULES),
 		"-DMAX_METADATA=10240",
 	}
+	compileCh = make(chan compileRequest)
+	go compile()
 }
 
 // NewBpfModule constructor
-func NewBpfModule(code string, cflags []string) *BpfModule {
+func newBpfModule(code string, cflags []string) *BpfModule {
 	//Debug.Println("Creating BpfModule from string")
 	cflagsC := make([]*C.char, len(defaultCflags)+len(cflags))
 	defer func() {
@@ -81,6 +92,21 @@ func NewBpfModule(code string, cflags []string) *BpfModule {
 		kprobes: make(map[string]unsafe.Pointer),
 	}
 }
+
+func NewBpfModule(code string, cflags []string) *BpfModule {
+	bpfInitOnce.Do(bpfInit)
+	ch := make(chan *BpfModule)
+	compileCh <- compileRequest{code, cflags, ch}
+	return <-ch
+}
+
+func compile() {
+	for {
+		req := <-compileCh
+		req.rspCh <- newBpfModule(req.code, req.cflags)
+	}
+}
+
 func (bpf *BpfModule) Close() {
 	//Debug.Println("Closing BpfModule")
 	C.bpf_module_destroy(bpf.p)

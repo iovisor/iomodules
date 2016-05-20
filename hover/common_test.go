@@ -56,7 +56,7 @@ func testSetup(t *testing.T) (*httptest.Server, func()) {
 	}
 }
 
-func testNetnsPair(t *testing.T) ([]*netlink.Veth, []netns.NsHandle, func()) {
+func testNetnsPair(t *testing.T, prefix string) ([]*netlink.Veth, []netns.NsHandle, func()) {
 	testns1 := NewNs()
 	testns2 := NewNs()
 
@@ -65,12 +65,12 @@ func testNetnsPair(t *testing.T) ([]*netlink.Veth, []netns.NsHandle, func()) {
 		testns1.Close()
 	}
 
-	l1, err := NewVeth(testns1, "ns1", "eth0", "10.10.1.1/24", nil)
+	l1, err := NewVeth(testns1, prefix+"1", "eth0", "10.10.1.1/24", nil)
 	if err != nil {
 		cleanup()
 		t.Fatal(err)
 	}
-	l2, err := NewVeth(testns2, "ns2", "eth0", "10.10.1.2/24", nil)
+	l2, err := NewVeth(testns2, prefix+"2", "eth0", "10.10.1.2/24", nil)
 	if err != nil {
 		cleanup()
 		t.Fatal(err)

@@ -37,16 +37,20 @@ type NetlinkMonitor struct {
 	nodes map[int]*ExtInterface
 
 	g   Graph
+	r   *Renderer
+	pp  *PatchPanel
 	mtx sync.RWMutex
 }
 
-func NewNetlinkMonitor(g Graph) (res *NetlinkMonitor, err error) {
+func NewNetlinkMonitor(g Graph, r *Renderer, pp *PatchPanel) (res *NetlinkMonitor, err error) {
 	nlmon := &NetlinkMonitor{
 		updates: make(chan netlink.LinkUpdate),
 		done:    make(chan struct{}),
 		flush:   make(chan struct{}),
 		nodes:   make(map[int]*ExtInterface),
 		g:       g,
+		r:       r,
+		pp:      pp,
 	}
 	err = netlink.LinkSubscribe(nlmon.updates, nlmon.done)
 	defer func() {
@@ -116,6 +120,13 @@ func (nm *NetlinkMonitor) handleMasterChange(node *ExtInterface, link netlink.Li
 			fid, tid := 0, 0
 			nm.g.SetEdge(NewEdgeChain(node, master, &fid, &tid))
 			nm.g.SetEdge(NewEdgeChain(master, node, &tid, &fid))
+			if err := nm.r.Provision(nm.g, []InterfaceNode{node}); err != nil {
+				return err
+			}
+			if err := nm.ensureInterface(nm.g, node); err != nil {
+				return err
+			}
+			nm.r.Run(nm.g, []InterfaceNode{node})
 		} else {
 			// remove case
 		}
@@ -171,6 +182,7 @@ func (nm *NetlinkMonitor) ParseLinkUpdates() {
 		case update, ok := <-nm.updates:
 			if !ok {
 				// channel closed
+				Info.Printf("nm %p updates closed\n", nm)
 				return
 			}
 			switch update.Header.Type {
@@ -210,35 +222,42 @@ func (nm *NetlinkMonitor) InterfaceByName(name string) (node InterfaceNode, err 
 	return
 }
 
+func (nm *NetlinkMonitor) ensureInterface(g Graph, node InterfaceNode) error {
+	if node.ID() < 0 {
+		return nil
+	}
+	Info.Printf("visit: id=%d :: fd=%d :: %s :: %d\n", node.ID(), node.FD(), node.Path(), node.Link().Attrs().Index)
+	nm.pp.modules.Set(strconv.Itoa(node.ID()), strconv.Itoa(node.FD()))
+	switch deg := g.Degree(node); deg {
+	case 2:
+		//Debug.Printf("Adding ingress for %s\n", node.Link().Attrs().Name)
+		next := g.From(node)[0].(Node)
+		e := g.E(node, next)
+		if e.Serialize()[0] == 0 {
+			return nil
+		}
+		chain, err := NewIngressChain(e.Serialize())
+		if err != nil {
+			return err
+		}
+		defer chain.Close()
+		Info.Printf(" %4d: %-11s%s\n", e.F().Ifc(), next.Path(), e)
+		if err := ensureIngressFd(node.Link(), chain.FD()); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("Invalid # edges for node %s, must be 2, got %d", node.Path(), deg)
+	}
+	return nil
+}
+
 func (nm *NetlinkMonitor) EnsureInterfaces(g Graph, pp *PatchPanel) {
 	nm.flush <- struct{}{}
 	nm.mtx.Lock()
 	defer nm.mtx.Unlock()
-	for ifindex, node := range nm.nodes {
-		if node.ID() < 0 {
-			continue
-		}
-		Info.Printf("visit: %d :: %s :: %d\n", node.ID(), node.Path(), ifindex)
-		pp.modules.Set(strconv.Itoa(node.ID()), strconv.Itoa(node.FD()))
-		switch deg := g.Degree(node); deg {
-		case 2:
-			//Debug.Printf("Adding ingress for %s\n", node.Link().Attrs().Name)
-			next := g.From(node)[0].(Node)
-			e := g.E(node, next)
-			if e.Serialize()[0] == 0 {
-				continue
-			}
-			chain, err := NewIngressChain(e.Serialize())
-			if err != nil {
-				panic(err)
-			}
-			defer chain.Close()
-			Info.Printf(" %4d: %-11s%s\n", e.F().Ifc(), next.Path(), e)
-			if err := ensureIngressFd(node.Link(), chain.FD()); err != nil {
-				panic(err)
-			}
-		default:
-			panic(fmt.Errorf("Invalid # edges for node %s, must be 2, got %d", node.Path(), deg))
+	for _, node := range nm.nodes {
+		if err := nm.ensureInterface(g, node); err != nil {
+			panic(err)
 		}
 	}
 }

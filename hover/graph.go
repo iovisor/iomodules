@@ -60,6 +60,7 @@ func NewNodeBase(id, fd int, uuid, prefix string, nhandles uint) NodeBase {
 }
 
 func (n *NodeBase) ID() int                      { return n.id }
+func (n *NodeBase) SetID(id int)                 { n.id = id }
 func (n *NodeBase) FD() int                      { return n.fd }
 func (n *NodeBase) DOTID() string                { return fmt.Sprintf("%q", n.Path()) }
 func (n *NodeBase) Path() string                 { return n.prefix + n.uuid }

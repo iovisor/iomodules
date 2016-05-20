@@ -22,6 +22,7 @@ import (
 	"github.com/gorilla/mux"
 	"net/http"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/gonum/graph"
@@ -193,11 +194,12 @@ func (s *HoverServer) Init() (err error) {
 	if err != nil {
 		return
 	}
-	s.nlmon, err = NewNetlinkMonitor(s.g)
+	s.renderer = NewRenderer()
+	s.nlmon, err = NewNetlinkMonitor(s.g, s.renderer, s.patchPanel)
 	if err != nil {
 		return
 	}
-	s.renderer = NewRenderer()
+	Info.Printf("NetlinkMonitor=%p\n", s.nlmon)
 
 	return
 }
@@ -221,6 +223,8 @@ func (s *HoverServer) handleModulePost(r *http.Request) routeResponse {
 		panic(err)
 	}
 	id := s.g.NewNodeID()
+	stub := NewNodeBase(id, -1, "stub:", strconv.Itoa(id), 1)
+	s.g.AddNode(&stub)
 	adapter, err := NewAdapter(req, s.g, id)
 	if err != nil {
 		panic(err)
@@ -228,7 +232,9 @@ func (s *HoverServer) handleModulePost(r *http.Request) routeResponse {
 	node := NewAdapterNode(adapter)
 	s.adapterEntries.Add(node)
 	node.SetID(id)
+	s.g.RemoveNode(&stub)
 	s.g.AddNode(node)
+	s.patchPanel.modules.Set(strconv.Itoa(node.ID()), strconv.Itoa(node.FD()))
 
 	s.recomputePolicies()
 	entry := adapterToModuleEntry(adapter)
@@ -496,12 +502,13 @@ func (s *HoverServer) handleLinkPost(r *http.Request) routeResponse {
 }
 
 func (s *HoverServer) recomputePolicies() {
-	if err := s.renderer.Provision(s.g, s.nlmon); err != nil {
+	nodes := s.nlmon.Interfaces()
+	if err := s.renderer.Provision(s.g, nodes); err != nil {
 		panic(err)
 	}
 	DumpDotFile(s.g)
 	s.nlmon.EnsureInterfaces(s.g, s.patchPanel)
-	s.renderer.Run(s.g, s.patchPanel, s.nlmon)
+	s.renderer.Run(s.g, nodes)
 }
 
 func (s *HoverServer) edgeLookup(id string) Edge {
@@ -580,6 +587,7 @@ func (s *HoverServer) Close() error {
 	if s != nil {
 		s.patchPanel.Close()
 	}
+	s.nlmon.Close()
 	return nil
 }
 

@@ -16,7 +16,6 @@ package hover
 
 import (
 	"fmt"
-	"strconv"
 
 	"golang.org/x/tools/container/intsets"
 )
@@ -102,7 +101,7 @@ func provisionNode(g Graph, this Node, newIds *[]NodeIfc) {
 	}
 }
 
-func (h *Renderer) Provision(g Graph, nlmon *NetlinkMonitor) (err error) {
+func (h *Renderer) Provision(g Graph, nodes []InterfaceNode) (err error) {
 	newIds := []NodeIfc{}
 	visitFn := func(prev, this Node) {
 		provisionNode(g, this, &newIds)
@@ -126,7 +125,7 @@ func (h *Renderer) Provision(g Graph, nlmon *NetlinkMonitor) (err error) {
 
 	// Find all of the Adapter (internal) nodes reachable from an external interface.
 	// Collect the ID of each node and update the modules table.
-	for _, node := range nlmon.Interfaces() {
+	for _, node := range nodes {
 		if node.ID() < 0 {
 			continue
 		}
@@ -136,15 +135,8 @@ func (h *Renderer) Provision(g Graph, nlmon *NetlinkMonitor) (err error) {
 	return
 }
 
-func (h *Renderer) Run(g Graph, pp *PatchPanel, nlmon *NetlinkMonitor) {
-	for _, node := range g.Nodes() {
-		if node, ok := node.(Node); ok && node.FD() >= 0 {
-			pp.modules.Set(strconv.Itoa(node.ID()), strconv.Itoa(node.FD()))
-			//Info.Printf("modules[%d] = %d\n", node.ID(), node.FD())
-		}
-	}
+func (h *Renderer) Run(g Graph, nodes []InterfaceNode) {
 	visitFn := func(prev, this Node) {
-		//pp.modules.Set(strconv.Itoa(this.ID()), strconv.Itoa(this.FD()))
 		Info.Printf("visit: %d :: %s\n", this.ID(), this.Path())
 		for _, t := range g.From(this) {
 			e := g.E(this, t)
@@ -186,7 +178,7 @@ func (h *Renderer) Run(g Graph, pp *PatchPanel, nlmon *NetlinkMonitor) {
 	t := NewDepthFirst(visitFn, filterInterfaceNode)
 	// Find all of the Adapter (internal) nodes reachable from an external interface.
 	// Collect the ID of each node and update the modules table.
-	for _, node := range nlmon.Interfaces() {
+	for _, node := range nodes {
 		if node.ID() < 0 {
 			continue
 		}

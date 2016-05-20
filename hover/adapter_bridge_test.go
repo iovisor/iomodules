@@ -23,17 +23,20 @@ import (
 	"github.com/vishvananda/netns"
 )
 
-func testBridgeSimpleSetup(t *testing.T) (*netlink.Bridge, []*netlink.Veth, []netns.NsHandle, func()) {
-	links, nets, cleanup := testNetnsPair(t)
+func testBridgeSimpleSetup(t *testing.T, nsPrefix string, br *netlink.Bridge) (
+	*netlink.Bridge, []*netlink.Veth, []netns.NsHandle, func()) {
+	links, nets, cleanup := testNetnsPair(t, nsPrefix)
 
-	br := &netlink.Bridge{
-		LinkAttrs: netlink.LinkAttrs{
-			Name: "br0",
-		},
-	}
-	if err := netlink.LinkAdd(br); err != nil {
-		cleanup()
-		t.Fatal(err)
+	if br == nil {
+		br = &netlink.Bridge{
+			LinkAttrs: netlink.LinkAttrs{
+				Name: "br0",
+			},
+		}
+		if err := netlink.LinkAdd(br); err != nil {
+			cleanup()
+			t.Fatal(err)
+		}
 	}
 
 	cleanup2 := func() {
@@ -60,7 +63,7 @@ func TestBridgeDetect(t *testing.T) {
 	srv, cleanup := testSetup(t)
 	defer cleanup()
 
-	br, _, nets, cleanup2 := testBridgeSimpleSetup(t)
+	br, _, nets, cleanup2 := testBridgeSimpleSetup(t, "ns", nil)
 	defer cleanup2()
 
 	testOne(t, testCase{
@@ -85,7 +88,7 @@ func TestBridgePolicy(t *testing.T) {
 	srv, cleanup := testSetup(t)
 	defer cleanup()
 
-	br, _, nets, cleanup2 := testBridgeSimpleSetup(t)
+	br, _, nets, cleanup2 := testBridgeSimpleSetup(t, "ns", nil)
 	defer cleanup2()
 
 	testOne(t, testCase{
@@ -126,4 +129,26 @@ func TestBridgePolicy(t *testing.T) {
 	if c2.Key != "0x1" || c2.Value == "0x0" {
 		t.Fatalf("Expected counter 1 != 0, got %s", c2.Value)
 	}
+}
+
+func TestBridgePolicyLinkUpdate(t *testing.T) {
+	srv, cleanup := testSetup(t)
+	defer cleanup()
+
+	br, _, _, cleanup2 := testBridgeSimpleSetup(t, "nsA", nil)
+	defer cleanup2()
+
+	testOne(t, testCase{
+		url:    srv.URL + "/modules/b:" + br.Attrs().Name,
+		method: "GET",
+	}, nil)
+
+	var t1 moduleEntry
+	testOne(t, testCase{
+		url:  srv.URL + "/modules/",
+		body: wrapCodePolicy(t, policyC, []string{"b:" + br.Attrs().Name}),
+	}, &t1)
+
+	_, _, _, cleanup3 := testBridgeSimpleSetup(t, "nsB", br)
+	defer cleanup3()
 }

@@ -157,7 +157,7 @@ func TestModuleRedirect(t *testing.T) {
 	defer cleanup()
 
 	// ns1 <-> redir1 <-> redir2 <-> ns2
-	links, nets, cleanup2 := testNetnsPair(t)
+	links, nets, cleanup2 := testNetnsPair(t, "ns")
 	defer cleanup2()
 
 	var t1, t2 moduleEntry
