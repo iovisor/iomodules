@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package hover
+package canvas
 
 import (
 	"fmt"
@@ -24,6 +24,8 @@ import (
 	"github.com/gonum/graph/simple"
 	"github.com/gonum/graph/traverse"
 	"golang.org/x/tools/container/intsets"
+
+	"github.com/iovisor/iomodules/hover/util"
 )
 
 type Node interface {
@@ -44,7 +46,7 @@ type NodeBase struct {
 	fd      int
 	uuid    string
 	prefix  string
-	handles *HandlePool
+	handles *util.HandlePool
 	groups  *intsets.Sparse
 }
 
@@ -54,7 +56,7 @@ func NewNodeBase(id, fd int, uuid, prefix string, nhandles uint) NodeBase {
 		fd:      fd,
 		uuid:    uuid,
 		prefix:  prefix,
-		handles: NewHandlePool(nhandles),
+		handles: util.NewHandlePool(nhandles),
 		groups:  &intsets.Sparse{},
 	}
 }
@@ -62,6 +64,7 @@ func NewNodeBase(id, fd int, uuid, prefix string, nhandles uint) NodeBase {
 func (n *NodeBase) ID() int                      { return n.id }
 func (n *NodeBase) SetID(id int)                 { n.id = id }
 func (n *NodeBase) FD() int                      { return n.fd }
+func (n *NodeBase) SetFD(fd int)                 { n.fd = fd }
 func (n *NodeBase) DOTID() string                { return fmt.Sprintf("%q", n.Path()) }
 func (n *NodeBase) Path() string                 { return n.prefix + n.uuid }
 func (n *NodeBase) String() string               { return n.Path() }
@@ -70,30 +73,14 @@ func (n *NodeBase) NewInterfaceID() (int, error) { return n.handles.Acquire() }
 func (n *NodeBase) ReleaseInterfaceID(id int)    { n.handles.Release(id) }
 func (n *NodeBase) Close()                       {}
 
-type AdapterNode struct {
-	NodeBase
-	adapter Adapter
-}
-
-func NewAdapterNode(adapter Adapter) *AdapterNode {
-	return &AdapterNode{
-		NodeBase: NewNodeBase(-1, adapter.FD(), adapter.UUID(), "", MAX_INTERFACES),
-		adapter:  adapter,
-	}
-}
-
-func (n *AdapterNode) SetID(id int)     { n.id = id }
-func (n *AdapterNode) Close()           { n.adapter.Close() }
-func (n *AdapterNode) Adapter() Adapter { return n.adapter }
-
 type NodeIfc struct {
-	node int
-	ifc  int
+	N int
+	I int
 }
 
-func (ni NodeIfc) ID() int        { return ni.node }
-func (ni NodeIfc) Ifc() int       { return ni.ifc }
-func (ni NodeIfc) Serialize() int { return ni.ifc<<16 | ni.node }
+func (ni NodeIfc) ID() int        { return ni.N }
+func (ni NodeIfc) Ifc() int       { return ni.I }
+func (ni NodeIfc) Serialize() int { return ni.I<<16 | ni.N }
 
 type Edge interface {
 	graph.Edge
@@ -118,7 +105,7 @@ type EdgeChain struct {
 
 func NewEdgeChain(f, t Node, fp, tp *int) *EdgeChain {
 	return &EdgeChain{
-		id:      encrypter.EncodePair(f.ID(), t.ID()),
+		id:      util.Encrypter.EncodePair(f.ID(), t.ID()),
 		f:       f,
 		t:       t,
 		w:       [3]NodeIfc{},
@@ -255,12 +242,12 @@ func (g *DirectedGraph) RemoveEdge(e Edge) {
 }
 
 func (g *DirectedGraph) AddNode(node graph.Node) {
-	Debug.Printf("AddNode %s\n", node.(Node).Path())
+	Debug.Printf("AddNode %s %d\n", node.(Node).Path(), node.ID())
 	g.DirectedGraph.AddNode(node)
 	g.paths[node.(Node).Path()] = node.ID()
 }
 func (g *DirectedGraph) RemoveNode(node graph.Node) {
-	Debug.Printf("RemoveNode %s\n", node.(Node).Path())
+	Debug.Printf("RemoveNode %s %d\n", node.(Node).Path(), node.ID())
 	g.DirectedGraph.RemoveNode(node)
 	delete(g.paths, node.(Node).Path())
 }

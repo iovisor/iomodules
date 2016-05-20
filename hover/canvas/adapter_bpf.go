@@ -14,11 +14,14 @@
 
 // vim: set ts=8:sts=8:sw=8:noet
 
-package hover
+package canvas
 
 import (
 	"fmt"
 	"strings"
+
+	"github.com/iovisor/iomodules/hover/api"
+	"github.com/iovisor/iomodules/hover/bpf"
 )
 
 type BpfAdapter struct {
@@ -27,9 +30,18 @@ type BpfAdapter struct {
 	tags    []string
 	perm    uint
 	config  map[string]interface{}
-	bpf     *BpfModule
+	bpf     *bpf.BpfModule
 	fd      int
 	subtype string
+}
+
+func NewBpfAdapter(uuid, name string, b *bpf.BpfModule) *BpfAdapter {
+	return &BpfAdapter{
+		uuid:   uuid[:8],
+		name:   name,
+		config: make(map[string]interface{}),
+		bpf:    b,
+	}
 }
 
 func (adapter *BpfAdapter) Type() string {
@@ -42,7 +54,7 @@ func (adapter *BpfAdapter) Name() string   { return adapter.name }
 func (adapter *BpfAdapter) Tags() []string { return adapter.tags }
 func (adapter *BpfAdapter) Perm() uint     { return adapter.perm }
 
-func (adapter *BpfAdapter) SetConfig(req createModuleRequest, g Graph, id int) error {
+func (adapter *BpfAdapter) SetConfig(req api.ModuleBase, g Graph, id int) error {
 	var code, fullCode string
 	for k, v := range req.Config {
 		switch strings.ToLower(k) {
@@ -52,7 +64,7 @@ func (adapter *BpfAdapter) SetConfig(req createModuleRequest, g Graph, id int) e
 				return fmt.Errorf("Expected code argument to be a string")
 			}
 			code = val
-			fullCode = strings.Join([]string{iomoduleH, wrapperC, val}, "\n")
+			fullCode = strings.Join([]string{bpf.IomoduleH, bpf.WrapperC, val}, "\n")
 		}
 	}
 	cflags := []string{"-DMODULE_UUID_SHORT=\"" + adapter.uuid[:8] + "\""}
@@ -65,7 +77,7 @@ func (adapter *BpfAdapter) SetConfig(req createModuleRequest, g Graph, id int) e
 			return fmt.Errorf("BPF code update not supported")
 		}
 	} else {
-		adapter.bpf = NewBpfModule(fullCode, cflags)
+		adapter.bpf = bpf.NewBpfModule(fullCode, cflags)
 		if adapter.bpf == nil {
 			return fmt.Errorf("Could not load bpf code, check server log for details")
 		}
@@ -97,7 +109,7 @@ func (adapter *BpfAdapter) UUID() string                   { return "m:" + adapt
 func (adapter *BpfAdapter) FD() int                        { return adapter.fd }
 
 func (adapter *BpfAdapter) Init() error {
-	fd, err := adapter.bpf.initRxHandler()
+	fd, err := adapter.bpf.InitRxHandler()
 	if err != nil {
 		Warn.Printf("Unable to init rx handler: %s\n", err)
 		return err
@@ -121,12 +133,9 @@ func (adapter *BpfAdapter) Tables() []map[string]interface{} {
 }
 
 func (adapter *BpfAdapter) Table(name string) AdapterTable {
-	id := adapter.bpf.tableId(name)
+	id := adapter.bpf.TableId(name)
 	if ^uint64(id) == 0 {
 		return nil
 	}
-	return &BpfTable{
-		id:     id,
-		module: adapter.bpf,
-	}
+	return bpf.NewBpfTable(id, adapter.bpf)
 }

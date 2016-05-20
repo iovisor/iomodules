@@ -1,4 +1,4 @@
-// Copyright 2015 PLUMgrid
+// Copyright 2016 PLUMgrid
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,18 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// vim: set ts=8:sts=8:sw=8:noet
+package api
 
-package hover
+type ModuleBase struct {
+	ModuleType  string                 `json:"module_type"`
+	DisplayName string                 `json:"display_name"`
+	Tags        []string               `json:"tags"`
+	Config      map[string]interface{} `json:"config"`
+}
+type Module struct {
+	ModuleBase
+	Id   string `json:"id"`
+	Perm string `json:"permissions"`
+}
 
-import (
-	"net/http/httptest"
-	"testing"
-)
-
-func TestIfcList(t *testing.T) {
-	s := NewServer()
-	defer s.Close()
-	srv := httptest.NewServer(s.Handler())
-	defer srv.Close()
+type ModuleTableEntry struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }

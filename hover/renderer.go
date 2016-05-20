@@ -18,6 +18,16 @@ import (
 	"fmt"
 
 	"golang.org/x/tools/container/intsets"
+
+	"github.com/iovisor/iomodules/hover/canvas"
+	"github.com/iovisor/iomodules/hover/util"
+)
+
+var (
+	Debug = util.Debug
+	Info  = util.Info
+	Warn  = util.Warn
+	Error = util.Error
 )
 
 type Renderer struct {
@@ -27,12 +37,12 @@ func NewRenderer() *Renderer {
 	return &Renderer{}
 }
 
-func filterInterfaceNode(e Edge) bool {
+func filterInterfaceNode(e canvas.Edge) bool {
 	_, ok := e.To().(InterfaceNode)
 	return !ok
 }
 
-func computeChainFrom(from, to Node) (chain []NodeIfc) {
+func computeChainFrom(from, to canvas.Node) (chain []canvas.NodeIfc) {
 	// For each link, there is a chain of modules to be invoked: the
 	// ingress policy modules, the egress policy modules, and the final
 	// forwarding nexthop.
@@ -61,11 +71,11 @@ func computeChainFrom(from, to Node) (chain []NodeIfc) {
 
 	x.Copy(&e)
 	for x.TakeMin(&id) {
-		chain = append(chain, NodeIfc{id, 1})
+		chain = append(chain, canvas.NodeIfc{id, 1})
 	}
 	x.Copy(&l)
 	for x.TakeMin(&id) {
-		chain = append(chain, NodeIfc{id, 2})
+		chain = append(chain, canvas.NodeIfc{id, 2})
 	}
 	return chain
 }
@@ -74,39 +84,39 @@ func computeChainFrom(from, to Node) (chain []NodeIfc) {
 // traversal. If allocation fails, panic and expect to be recovered. The
 // allocated IDs are stored in newIds so as to be collected in the recover
 // routine.
-func provisionNode(g Graph, this Node, newIds *[]NodeIfc) {
+func provisionNode(g canvas.Graph, this canvas.Node, newIds *[]canvas.NodeIfc) {
 	Info.Printf("Provisioning %s (%d)\n", this, this.ID())
 	for _, t := range g.From(this) {
 		e := g.E(this, t)
-		target := t.(Node)
+		target := t.(canvas.Node)
 		chain := computeChainFrom(this, target)
 		fid, tid := e.F().Ifc(), e.T().Ifc()
 		var err error
 		if fid < 0 {
-			if fid, err = e.From().(Node).NewInterfaceID(); err != nil {
-				Error.Printf("Provisioning %s failed %s\n", e.From().(Node), err)
+			if fid, err = e.From().(canvas.Node).NewInterfaceID(); err != nil {
+				Error.Printf("Provisioning %s failed %s\n", e.From().(canvas.Node), err)
 				panic(err)
 			}
-			*newIds = append(*newIds, NodeIfc{e.From().ID(), fid})
+			*newIds = append(*newIds, canvas.NodeIfc{e.From().ID(), fid})
 		}
 		if tid < 0 {
-			if tid, err = e.To().(Node).NewInterfaceID(); err != nil {
-				Error.Printf("Provisioning %s failed %s\n", e.To().(Node), err)
+			if tid, err = e.To().(canvas.Node).NewInterfaceID(); err != nil {
+				Error.Printf("Provisioning %s failed %s\n", e.To().(canvas.Node), err)
 				panic(err)
 			}
-			*newIds = append(*newIds, NodeIfc{e.To().ID(), tid})
+			*newIds = append(*newIds, canvas.NodeIfc{e.To().ID(), tid})
 		}
 		if e.Update(chain, fid, tid) {
 		}
 	}
 }
 
-func (h *Renderer) Provision(g Graph, nodes []InterfaceNode) (err error) {
-	newIds := []NodeIfc{}
-	visitFn := func(prev, this Node) {
+func (h *Renderer) Provision(g canvas.Graph, nodes []InterfaceNode) (err error) {
+	newIds := []canvas.NodeIfc{}
+	visitFn := func(prev, this canvas.Node) {
 		provisionNode(g, this, &newIds)
 	}
-	t := NewDepthFirst(visitFn, filterInterfaceNode)
+	t := canvas.NewDepthFirst(visitFn, filterInterfaceNode)
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -135,13 +145,13 @@ func (h *Renderer) Provision(g Graph, nodes []InterfaceNode) (err error) {
 	return
 }
 
-func (h *Renderer) Run(g Graph, nodes []InterfaceNode) {
-	visitFn := func(prev, this Node) {
+func (h *Renderer) Run(g canvas.Graph, nodes []InterfaceNode) {
+	visitFn := func(prev, this canvas.Node) {
 		Info.Printf("visit: %d :: %s\n", this.ID(), this.Path())
 		for _, t := range g.From(this) {
 			e := g.E(this, t)
-			adapter := this.(*AdapterNode).adapter
-			target := t.(Node)
+			adapter := this.(*canvas.AdapterNode).Adapter()
+			target := t.(canvas.Node)
 			if adapter.Type() == "bridge" {
 				if target, ok := target.(*ExtInterface); ok {
 					if e.Serialize()[0] == 0 {
@@ -175,7 +185,7 @@ func (h *Renderer) Run(g Graph, nodes []InterfaceNode) {
 			}
 		}
 	}
-	t := NewDepthFirst(visitFn, filterInterfaceNode)
+	t := canvas.NewDepthFirst(visitFn, filterInterfaceNode)
 	// Find all of the Adapter (internal) nodes reachable from an external interface.
 	// Collect the ID of each node and update the modules table.
 	for _, node := range nodes {

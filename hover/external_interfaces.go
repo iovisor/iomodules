@@ -19,34 +19,37 @@ import (
 	"syscall"
 
 	"github.com/vishvananda/netlink"
+
+	"github.com/iovisor/iomodules/hover/bpf"
+	"github.com/iovisor/iomodules/hover/canvas"
 )
 
 type InterfaceNode interface {
-	Node
+	canvas.Node
 	Link() netlink.Link
 	SetLink(netlink.Link)
 }
 
 type ExtInterface struct {
-	NodeBase
+	canvas.NodeBase
 	link netlink.Link
 }
 
 func NewExtInterface(link netlink.Link) *ExtInterface {
 	return &ExtInterface{
-		NodeBase: NewNodeBase(-1, -1, link.Attrs().Name, "i:", 1),
+		NodeBase: canvas.NewNodeBase(-1, -1, link.Attrs().Name, "i:", 1),
 		link:     link,
 	}
 }
 
 func (ifc *ExtInterface) FD() int {
-	if ifc.fd >= 0 {
-		return ifc.fd
+	if ifc.NodeBase.FD() >= 0 {
+		return ifc.NodeBase.FD()
 	}
 	cflags := []string{
 		fmt.Sprintf("-DINTERFACE_ID=%d", ifc.link.Attrs().Index),
 	}
-	bpf := NewBpfModule(netdevTxC, cflags)
+	bpf := bpf.NewBpfModule(bpf.NetdevTxC, cflags)
 	if bpf == nil {
 		panic(fmt.Errorf("Failed to compile bpf module for %s egress", ifc.Path()))
 	}
@@ -60,13 +63,13 @@ func (ifc *ExtInterface) FD() int {
 	if err != nil {
 		panic(err)
 	}
-	ifc.fd = fd2
-	return ifc.fd
+	ifc.NodeBase.SetFD(fd2)
+	return ifc.NodeBase.FD()
 }
 
 func (ifc *ExtInterface) Link() netlink.Link        { return ifc.link }
 func (ifc *ExtInterface) SetLink(link netlink.Link) { ifc.link = link }
-func (ifc *ExtInterface) SetID(id int)              { ifc.id = id }
+func (ifc *ExtInterface) SetID(id int)              { ifc.NodeBase.SetID(id) }
 
 type IngressChain struct {
 	fd int
@@ -80,7 +83,7 @@ func NewIngressChain(chain [4]int) (*IngressChain, error) {
 		fmt.Sprintf("-DCHAIN_VALUE3=%#x", chain[3]),
 	}
 	//Debug.Printf("netdev: %v\n", cflags)
-	bpf := NewBpfModule(netdevRxC, cflags)
+	bpf := bpf.NewBpfModule(bpf.NetdevRxC, cflags)
 	if bpf == nil {
 		return nil, fmt.Errorf("NewIngressChain bpf compile failed")
 	}
@@ -111,7 +114,7 @@ func NewEgressChain(chain [4]int) (*EgressChain, error) {
 		fmt.Sprintf("-DCHAIN_VALUE3=%#x", chain[3]),
 	}
 	//Debug.Printf("netdev: %v\n", cflags)
-	bpf := NewBpfModule(netdevEgressC, cflags)
+	bpf := bpf.NewBpfModule(bpf.NetdevEgressC, cflags)
 	if bpf == nil {
 		return nil, fmt.Errorf("NewEgressChain bpf compile failed")
 	}

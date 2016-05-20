@@ -14,11 +14,13 @@
 
 // vim: set ts=8:sts=8:sw=8:noet
 
-package hover
+package canvas
 
 import (
 	"fmt"
 	"github.com/vishvananda/netlink"
+
+	"github.com/iovisor/iomodules/hover/api"
 )
 
 type BridgeAdapter struct {
@@ -30,6 +32,17 @@ type BridgeAdapter struct {
 	link   *netlink.Bridge
 }
 
+func NewBridgeAdapter(link *netlink.Bridge) *BridgeAdapter {
+	return &BridgeAdapter{
+		uuid:   link.Attrs().Name,
+		name:   link.Attrs().Name,
+		tags:   []string{},
+		perm:   PermR,
+		config: make(map[string]interface{}),
+		link:   link,
+	}
+}
+
 func (ba *BridgeAdapter) UUID() string   { return "b:" + ba.uuid }
 func (ba *BridgeAdapter) FD() int        { return -1 }
 func (ba *BridgeAdapter) Tags() []string { return []string{} }
@@ -38,7 +51,7 @@ func (ba *BridgeAdapter) Name() string   { return ba.name }
 func (ba *BridgeAdapter) Perm() uint     { return ba.perm }
 func (ba *BridgeAdapter) Close()         {}
 
-func (ba *BridgeAdapter) SetConfig(req createModuleRequest, g Graph, id int) error {
+func (ba *BridgeAdapter) SetConfig(req api.ModuleBase, g Graph, id int) error {
 	return nil
 }
 
@@ -65,8 +78,8 @@ func (table *BridgeTable) Set(key, val string) error {
 func (table *BridgeTable) Delete(key string) error {
 	return fmt.Errorf("BridgeTable: Delete operation not supported")
 }
-func (table *BridgeTable) Iter() <-chan AdapterTablePair {
-	ch := make(chan AdapterTablePair)
+func (table *BridgeTable) Iter() <-chan api.ModuleTableEntry {
+	ch := make(chan api.ModuleTableEntry)
 	close(ch)
 	return ch
 }

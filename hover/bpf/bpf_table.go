@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package hover
+package bpf
 
 import (
 	"bytes"
 	"fmt"
 	"unsafe"
+
+	"github.com/iovisor/iomodules/hover/api"
 )
 
 /*
@@ -31,6 +33,13 @@ import "C"
 type BpfTable struct {
 	id     C.size_t
 	module *BpfModule
+}
+
+func NewBpfTable(id C.size_t, module *BpfModule) *BpfTable {
+	return &BpfTable{
+		id:     id,
+		module: module,
+	}
 }
 
 func (table *BpfTable) ID() string {
@@ -125,7 +134,7 @@ func (table *BpfTable) Get(keyStr string) (interface{}, bool) {
 	if r != 0 {
 		return nil, false
 	}
-	return AdapterTablePair{
+	return api.ModuleTableEntry{
 		Key:   keyStr,
 		Value: string(leafStr[:bytes.IndexByte(leafStr, 0)]),
 	}, true
@@ -165,9 +174,9 @@ func (table *BpfTable) Delete(keyStr string) error {
 	}
 	return nil
 }
-func (table *BpfTable) Iter() <-chan AdapterTablePair {
+func (table *BpfTable) Iter() <-chan api.ModuleTableEntry {
 	mod := table.module.p
-	ch := make(chan AdapterTablePair, 128)
+	ch := make(chan api.ModuleTableEntry, 128)
 	go func() {
 		defer close(ch)
 		fd := C.bpf_table_fd_id(mod, table.id)
@@ -210,7 +219,7 @@ func (table *BpfTable) Iter() <-chan AdapterTablePair {
 			if r != 0 {
 				break
 			}
-			ch <- AdapterTablePair{
+			ch <- api.ModuleTableEntry{
 				Key:   string(keyStr[:bytes.IndexByte(keyStr, 0)]),
 				Value: string(leafStr[:bytes.IndexByte(leafStr, 0)]),
 			}

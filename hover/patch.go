@@ -18,59 +18,10 @@ package hover
 
 import (
 	"fmt"
-	"strings"
 	"syscall"
 
 	"github.com/vishvananda/netlink"
 )
-
-/*
-#cgo LDFLAGS: -lbcc
-#include <bcc/bpf_common.h>
-#include <bcc/libbpf.h>
-*/
-import "C"
-
-type PatchPanel struct {
-	adapter *BpfAdapter
-	modules AdapterTable
-}
-
-func NewPatchPanel() (pp *PatchPanel, err error) {
-	id := NewUUID4()
-
-	pp = &PatchPanel{}
-	defer func() {
-		if err != nil {
-			pp.Close()
-			pp = nil
-		}
-	}()
-	pp.adapter = &BpfAdapter{
-		uuid:   id,
-		name:   "patch",
-		config: make(map[string]interface{}),
-	}
-	code := strings.Join([]string{iomoduleH, patchC}, "\n")
-	pp.adapter.bpf = NewBpfModule(code, []string{"-w"})
-	if pp.adapter.bpf == nil {
-		err = fmt.Errorf("PatchPanel: unable to load core module")
-		return
-	}
-	pp.modules = pp.adapter.Table("modules")
-	if pp.modules == nil {
-		err = fmt.Errorf("PatchPanel: Unable to load modules table")
-		return
-	}
-	Debug.Printf("Patch panel modules table loaded: %v\n", pp.modules.Config())
-	return
-}
-
-func (p *PatchPanel) Close() {
-	if p.adapter != nil {
-		p.adapter.Close()
-	}
-}
 
 func ensureQdisc(link netlink.Link, qdiscType string, handle, parent uint32) (netlink.Qdisc, error) {
 	qds, err := netlink.QdiscList(link)

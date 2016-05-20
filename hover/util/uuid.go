@@ -1,6 +1,6 @@
 // vim: set ts=8:sts=8:sw=8:noet
 
-package hover
+package util
 
 import (
 	"crypto/aes"
@@ -33,11 +33,11 @@ type UUIDEncrypter struct {
 	c  cipher.Block
 }
 
-var encrypter *UUIDEncrypter
+var Encrypter *UUIDEncrypter
 
 func init() {
 	var err error
-	encrypter, err = NewUUIDEncrypter()
+	Encrypter, err = NewUUIDEncrypter()
 	if err != nil {
 		panic(err)
 	}

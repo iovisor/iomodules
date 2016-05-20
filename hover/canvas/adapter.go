@@ -14,15 +14,65 @@
 
 // vim: set ts=8:sts=8:sw=8:noet
 
-package hover
+package canvas
 
 import (
 	"fmt"
 	"strings"
+
+	"github.com/iovisor/iomodules/hover/api"
+	"github.com/iovisor/iomodules/hover/bpf"
+	"github.com/iovisor/iomodules/hover/util"
 )
 
-func NewAdapter(req createModuleRequest, g Graph, id int) (adapter Adapter, err error) {
-	uuid := NewUUID4()
+var (
+	Debug = util.Debug
+	Info  = util.Info
+	Warn  = util.Warn
+	Error = util.Error
+)
+
+const (
+	PermW = 1 << (1 + iota)
+	PermR
+)
+
+type Adapter interface {
+	UUID() string
+	FD() int
+	Close()
+	Type() string
+	Name() string
+	Tags() []string
+	Perm() uint
+	Config() map[string]interface{}
+	SetConfig(req api.ModuleBase, g Graph, id int) error
+	Tables() []map[string]interface{}
+	Table(name string) AdapterTable
+}
+
+type AdapterTable interface {
+	ID() string
+	Name() string
+	Config() map[string]interface{}
+	Get(key string) (interface{}, bool)
+	Set(key, val string) error
+	Delete(key string) error
+	Iter() <-chan api.ModuleTableEntry
+}
+
+type Interface interface {
+	ID() int
+	Name() string
+}
+
+type AdapterNode struct {
+	NodeBase
+	adapter Adapter
+}
+
+func NewAdapter(req api.ModuleBase, g Graph, id int) (adapter Adapter, err error) {
+	uuid := util.NewUUID4()
 
 	parts := strings.SplitN(req.ModuleType, "/", 2)
 	switch parts[0] {
@@ -60,41 +110,12 @@ func NewAdapter(req createModuleRequest, g Graph, id int) (adapter Adapter, err 
 	return
 }
 
-const (
-	PermW = 1 << (1 + iota)
-	PermR
-)
-
-type Adapter interface {
-	UUID() string
-	FD() int
-	Close()
-	Type() string
-	Name() string
-	Tags() []string
-	Perm() uint
-	Config() map[string]interface{}
-	SetConfig(req createModuleRequest, g Graph, id int) error
-	Tables() []map[string]interface{}
-	Table(name string) AdapterTable
+func NewAdapterNode(adapter Adapter) *AdapterNode {
+	return &AdapterNode{
+		NodeBase: NewNodeBase(-1, adapter.FD(), adapter.UUID(), "", bpf.MAX_INTERFACES),
+		adapter:  adapter,
+	}
 }
 
-type AdapterTablePair struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
-type AdapterTable interface {
-	ID() string
-	Name() string
-	Config() map[string]interface{}
-	Get(key string) (interface{}, bool)
-	Set(key, val string) error
-	Delete(key string) error
-	Iter() <-chan AdapterTablePair
-}
-
-type Interface interface {
-	ID() int
-	Name() string
-}
+func (n *AdapterNode) Close()           { n.adapter.Close() }
+func (n *AdapterNode) Adapter() Adapter { return n.adapter }

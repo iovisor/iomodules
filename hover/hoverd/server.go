@@ -27,6 +27,9 @@ import (
 
 	"github.com/gonum/graph"
 	"github.com/gonum/graph/traverse"
+
+	"github.com/iovisor/iomodules/hover/adapter"
+	"github.com/iovisor/iomodules/hover/api"
 )
 
 type routeResponse struct {
@@ -128,21 +131,9 @@ func sendReply(w http.ResponseWriter, r *http.Request, rsp *routeResponse) {
 	}
 }
 
-type createModuleRequest struct {
-	ModuleType  string                 `json:"module_type"`
-	DisplayName string                 `json:"display_name"`
-	Tags        []string               `json:"tags"`
-	Config      map[string]interface{} `json:"config"`
-}
-type moduleEntry struct {
-	createModuleRequest
-	Id   string `json:"id"`
-	Perm string `json:"permissions"`
-}
+type AdapterEntries map[string]*adapter.AdapterNode
 
-type AdapterEntries map[string]*AdapterNode
-
-func (a AdapterEntries) Add(node *AdapterNode) {
+func (a AdapterEntries) Add(node *adapter.AdapterNode) {
 	a[node.adapter.UUID()] = node
 }
 
@@ -164,10 +155,10 @@ func (a AdapterEntries) Get(id string) *moduleEntry {
 }
 
 func adapterToModuleEntry(a Adapter) *moduleEntry {
-	return &moduleEntry{
+	return &api.Module{
 		Id:   a.UUID(),
 		Perm: fmt.Sprintf("0%x00", a.Perm()),
-		createModuleRequest: createModuleRequest{
+		ModuleBase: api.ModuleBase{
 			ModuleType:  a.Type(),
 			DisplayName: a.Name(),
 			Tags:        a.Tags(),
@@ -188,14 +179,55 @@ func getRequestVar(r *http.Request, key string) string {
 	return value
 }
 
+type PatchPanel struct {
+	adapter *BpfAdapter
+	modules AdapterTable
+}
+
+func NewPatchPanel() (pp *PatchPanel, err error) {
+	id := NewUUID4()
+
+	pp = &PatchPanel{}
+	defer func() {
+		if err != nil {
+			pp.Close()
+			pp = nil
+		}
+	}()
+	pp.adapter = &BpfAdapter{
+		uuid:   id,
+		name:   "patch",
+		config: make(map[string]interface{}),
+	}
+	code := strings.Join([]string{iomoduleH, patchC}, "\n")
+	pp.adapter.bpf = NewBpfModule(code, []string{"-w"})
+	if pp.adapter.bpf == nil {
+		err = fmt.Errorf("PatchPanel: unable to load core module")
+		return
+	}
+	pp.modules = pp.adapter.Table("modules")
+	if pp.modules == nil {
+		err = fmt.Errorf("PatchPanel: Unable to load modules table")
+		return
+	}
+	Debug.Printf("Patch panel modules table loaded: %v\n", pp.modules.Config())
+	return
+}
+
+func (p *PatchPanel) Close() {
+	if p.adapter != nil {
+		p.adapter.Close()
+	}
+}
+
 func (s *HoverServer) Init() (err error) {
-	s.adapterEntries = make(map[string]*AdapterNode)
+	s.adapterEntries = make(map[string]*adapter.AdapterNode)
 	s.patchPanel, err = NewPatchPanel()
 	if err != nil {
 		return
 	}
 	s.renderer = NewRenderer()
-	s.nlmon, err = NewNetlinkMonitor(s.g, s.renderer, s.patchPanel)
+	s.nlmon, err = NewNetlinkMonitor(s.g, s.renderer, s.pp.modules)
 	if err != nil {
 		return
 	}
@@ -209,7 +241,7 @@ func (s *HoverServer) handleModuleList(r *http.Request) routeResponse {
 	for _, node := range s.g.Nodes() {
 		switch node := node.(type) {
 		case *ExtInterface:
-		case *AdapterNode:
+		case *adapter.AdapterNode:
 			entries = append(entries, adapterToModuleEntry(node.Adapter()))
 		}
 	}
@@ -218,7 +250,7 @@ func (s *HoverServer) handleModuleList(r *http.Request) routeResponse {
 
 // handleModulePost processes creation of a new Module
 func (s *HoverServer) handleModulePost(r *http.Request) routeResponse {
-	var req createModuleRequest
+	var req api.Module
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
 	}
@@ -229,7 +261,7 @@ func (s *HoverServer) handleModulePost(r *http.Request) routeResponse {
 	if err != nil {
 		panic(err)
 	}
-	node := NewAdapterNode(adapter)
+	node := adapter.NewAdapterNode(adapter)
 	s.adapterEntries.Add(node)
 	node.SetID(id)
 	s.g.RemoveNode(&stub)
@@ -249,7 +281,7 @@ func (s *HoverServer) handleModuleGet(r *http.Request) routeResponse {
 	}
 	switch node := node.(type) {
 	case *ExtInterface:
-	case *AdapterNode:
+	case *adapter.AdapterNode:
 		return routeResponse{body: adapterToModuleEntry(node.Adapter())}
 	}
 
@@ -266,7 +298,7 @@ func (s *HoverServer) handleModulePut(r *http.Request) routeResponse {
 		return notFound()
 	}
 
-	if err := node.adapter.SetConfig(req.createModuleRequest, s.g, node.ID()); err != nil {
+	if err := node.adapter.SetConfig(req.ModuleBase, s.g, node.ID()); err != nil {
 		panic(err)
 	}
 
@@ -507,7 +539,7 @@ func (s *HoverServer) recomputePolicies() {
 		panic(err)
 	}
 	DumpDotFile(s.g)
-	s.nlmon.EnsureInterfaces(s.g, s.patchPanel)
+	s.nlmon.EnsureInterfaces(s.g)
 	s.renderer.Run(s.g, nodes)
 }
 

@@ -14,7 +14,7 @@
 
 // vim: set ts=8:sts=8:sw=8:noet
 
-package hover
+package daemon
 
 import (
 	"fmt"
@@ -28,6 +28,9 @@ import (
 	_ "time"
 
 	"github.com/vishvananda/netlink"
+
+	"github.com/iovisor/iomodules/hover"
+	"github.com/iovisor/iomodules/hover/api"
 )
 
 var (
@@ -89,7 +92,7 @@ func wrapCodePolicy(t *testing.T, body string, tags []string) io.Reader {
 }
 
 func newCodeReader(t *testing.T, body string, modtype string, name string, tags []string) io.Reader {
-	req := &createModuleRequest{
+	req := &api.ModuleBase{
 		ModuleType:  modtype,
 		DisplayName: name,
 		Tags:        tags,
@@ -129,7 +132,7 @@ func TestModuleConnect(t *testing.T) {
 	srv, cleanup := testSetup(t)
 	defer cleanup()
 
-	var t1, t2 moduleEntry
+	var t1, t2 api.Module
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
 		body: wrapCode(t, trivialC, []string{}),
@@ -160,7 +163,7 @@ func TestModuleRedirect(t *testing.T) {
 	links, nets, cleanup2 := testNetnsPair(t, "ns")
 	defer cleanup2()
 
-	var t1, t2 moduleEntry
+	var t1, t2 api.Module
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
 		body: wrapCode(t, redirectC, []string{}),
@@ -182,7 +185,7 @@ func TestModuleRedirect(t *testing.T) {
 	testSetTableEntry(t, srv, t2.Id, "redirect", 2, 1)
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go RunInNs(nets[0], func() error {
+	go hover.RunInNs(nets[0], func() error {
 		defer wg.Done()
 		out, err := exec.Command("ping", "-c", "1", "10.10.1.2").Output()
 		if err != nil {
@@ -207,23 +210,23 @@ func TestModulePolicy(t *testing.T) {
 	srv, cleanup := testSetup(t)
 	defer cleanup()
 
-	testns1 := NewNs()
+	testns1 := hover.NewNs()
 	defer testns1.Close()
-	testns2 := NewNs()
+	testns2 := hover.NewNs()
 	defer testns2.Close()
 
-	l1, err := NewVeth(testns1, "ns1", "eth0", "10.10.1.1/24", nil)
+	l1, err := hover.NewVeth(testns1, "ns1", "eth0", "10.10.1.1/24", nil)
 	if err != nil {
 		t.Error(err)
 	}
 	defer netlink.LinkDel(l1)
-	l2, err := NewVeth(testns2, "ns2", "eth0", "10.10.1.2/24", nil)
+	l2, err := hover.NewVeth(testns2, "ns2", "eth0", "10.10.1.2/24", nil)
 	if err != nil {
 		t.Error(err)
 	}
 	defer netlink.LinkDel(l2)
 
-	var t1, t2 moduleEntry
+	var t1, t2 api.Module
 
 	// create a redirect bpf/forward module
 	testOne(t, testCase{
@@ -249,7 +252,7 @@ func TestModulePolicy(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go RunInNs(testns1, func() error {
+	go hover.RunInNs(testns1, func() error {
 		defer wg.Done()
 		out, err := exec.Command("ping", "-c", "1", "10.10.1.2").Output()
 		if err != nil {
@@ -259,7 +262,7 @@ func TestModulePolicy(t *testing.T) {
 	})
 	wg.Wait()
 
-	var c1, c2 AdapterTablePair
+	var c1, c2 api.ModuleTableEntry
 	testOne(t, testCase{
 		url:    srv.URL + "/modules/" + t1.Id + "/tables/counters/entries/0x0",
 		method: "GET",

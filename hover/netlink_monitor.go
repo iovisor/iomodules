@@ -21,6 +21,9 @@ import (
 	"syscall"
 
 	"github.com/vishvananda/netlink"
+
+	"github.com/iovisor/iomodules/hover/bpf"
+	"github.com/iovisor/iomodules/hover/canvas"
 )
 
 // NetlinkMonitor keeps track of the interfaces on this host. It can invoke a
@@ -36,13 +39,13 @@ type NetlinkMonitor struct {
 	// nodes tracks netlink ifindex to graph Node mapping
 	nodes map[int]*ExtInterface
 
-	g   Graph
-	r   *Renderer
-	pp  *PatchPanel
-	mtx sync.RWMutex
+	g       canvas.Graph
+	r       *Renderer
+	modules *bpf.BpfTable
+	mtx     sync.RWMutex
 }
 
-func NewNetlinkMonitor(g Graph, r *Renderer, pp *PatchPanel) (res *NetlinkMonitor, err error) {
+func NewNetlinkMonitor(g canvas.Graph, r *Renderer, modules *bpf.BpfTable) (res *NetlinkMonitor, err error) {
 	nlmon := &NetlinkMonitor{
 		updates: make(chan netlink.LinkUpdate),
 		done:    make(chan struct{}),
@@ -50,7 +53,7 @@ func NewNetlinkMonitor(g Graph, r *Renderer, pp *PatchPanel) (res *NetlinkMonito
 		nodes:   make(map[int]*ExtInterface),
 		g:       g,
 		r:       r,
-		pp:      pp,
+		modules: modules,
 	}
 	err = netlink.LinkSubscribe(nlmon.updates, nlmon.done)
 	defer func() {
@@ -78,18 +81,11 @@ func (nm *NetlinkMonitor) Close() {
 	close(nm.done)
 }
 
-func (nm *NetlinkMonitor) ensureBridge(link *netlink.Bridge) Node {
+func (nm *NetlinkMonitor) ensureBridge(link *netlink.Bridge) canvas.Node {
 	b := nm.g.NodeByPath("b:" + link.Attrs().Name)
 	if b == nil {
-		adapter := &BridgeAdapter{
-			uuid:   link.Attrs().Name,
-			name:   link.Attrs().Name,
-			tags:   []string{},
-			perm:   PermR,
-			config: make(map[string]interface{}),
-			link:   link,
-		}
-		node := NewAdapterNode(adapter)
+		a := canvas.NewBridgeAdapter(link)
+		node := canvas.NewAdapterNode(a)
 		node.SetID(nm.g.NewNodeID())
 		nm.g.AddNode(node)
 		b = node
@@ -118,8 +114,8 @@ func (nm *NetlinkMonitor) handleMasterChange(node *ExtInterface, link netlink.Li
 			}
 			// set to 0 so that the normal egress path is taken
 			fid, tid := 0, 0
-			nm.g.SetEdge(NewEdgeChain(node, master, &fid, &tid))
-			nm.g.SetEdge(NewEdgeChain(master, node, &tid, &fid))
+			nm.g.SetEdge(canvas.NewEdgeChain(node, master, &fid, &tid))
+			nm.g.SetEdge(canvas.NewEdgeChain(master, node, &tid, &fid))
 			if err := nm.r.Provision(nm.g, []InterfaceNode{node}); err != nil {
 				return err
 			}
@@ -222,16 +218,16 @@ func (nm *NetlinkMonitor) InterfaceByName(name string) (node InterfaceNode, err 
 	return
 }
 
-func (nm *NetlinkMonitor) ensureInterface(g Graph, node InterfaceNode) error {
+func (nm *NetlinkMonitor) ensureInterface(g canvas.Graph, node InterfaceNode) error {
 	if node.ID() < 0 {
 		return nil
 	}
 	Info.Printf("visit: id=%d :: fd=%d :: %s :: %d\n", node.ID(), node.FD(), node.Path(), node.Link().Attrs().Index)
-	nm.pp.modules.Set(strconv.Itoa(node.ID()), strconv.Itoa(node.FD()))
+	nm.modules.Set(strconv.Itoa(node.ID()), strconv.Itoa(node.FD()))
 	switch deg := g.Degree(node); deg {
 	case 2:
 		//Debug.Printf("Adding ingress for %s\n", node.Link().Attrs().Name)
-		next := g.From(node)[0].(Node)
+		next := g.From(node)[0].(canvas.Node)
 		e := g.E(node, next)
 		if e.Serialize()[0] == 0 {
 			return nil
@@ -251,7 +247,7 @@ func (nm *NetlinkMonitor) ensureInterface(g Graph, node InterfaceNode) error {
 	return nil
 }
 
-func (nm *NetlinkMonitor) EnsureInterfaces(g Graph, pp *PatchPanel) {
+func (nm *NetlinkMonitor) EnsureInterfaces(g canvas.Graph) {
 	nm.flush <- struct{}{}
 	nm.mtx.Lock()
 	defer nm.mtx.Unlock()

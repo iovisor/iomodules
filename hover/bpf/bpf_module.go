@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package hover
+package bpf
 
 import (
 	"bytes"
@@ -22,6 +22,8 @@ import (
 	"sync"
 	"syscall"
 	"unsafe"
+
+	"github.com/iovisor/iomodules/hover/util"
 )
 
 /*
@@ -32,6 +34,13 @@ import (
 void perf_reader_free(void *ptr);
 */
 import "C"
+
+var (
+	Debug = util.Debug
+	Info  = util.Info
+	Warn  = util.Warn
+	Error = util.Error
+)
 
 // BpfModule type
 type BpfModule struct {
@@ -46,12 +55,15 @@ type compileRequest struct {
 	rspCh  chan *BpfModule
 }
 
-var (
-	defaultCflags  []string
+const (
 	MAX_MODULES    uint = 1024
 	MAX_INTERFACES uint = 128
-	compileCh      chan compileRequest
-	bpfInitOnce    sync.Once
+)
+
+var (
+	defaultCflags []string
+	compileCh     chan compileRequest
+	bpfInitOnce   sync.Once
 )
 
 func bpfInit() {
@@ -126,7 +138,7 @@ func (bpf *BpfModule) Close() {
 	}
 }
 
-func (bpf *BpfModule) initRxHandler() (int, error) {
+func (bpf *BpfModule) InitRxHandler() (int, error) {
 	fd, err := bpf.LoadNet("handle_rx_wrapper")
 	if err != nil {
 		return -1, err
@@ -208,7 +220,7 @@ func (bpf *BpfModule) TableSize() uint64 {
 	return uint64(size)
 }
 
-func (bpf *BpfModule) tableId(name string) C.size_t {
+func (bpf *BpfModule) TableId(name string) C.size_t {
 	cs := C.CString(name)
 	defer C.free(unsafe.Pointer(cs))
 	return C.bpf_table_id(bpf.p, cs)

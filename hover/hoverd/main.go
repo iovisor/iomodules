@@ -11,7 +11,8 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/iovisor/iomodules/hover"
+	"github.com/iovisor/iomodules/hover/daemon"
+	"github.com/iovisor/iomodules/hover/util"
 )
 
 var listenSocket string
@@ -40,7 +41,7 @@ func main() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGTERM)
 	signal.Notify(c, os.Interrupt)
-	s := hover.NewServer()
+	s := daemon.NewServer()
 	go func() {
 		<-c
 		if s != nil {
@@ -49,9 +50,9 @@ func main() {
 		os.Exit(1)
 	}()
 	if s == nil {
-		hover.Warn.Println("Failed to start Hover Server")
+		util.Warn.Println("Failed to start Hover Server")
 		os.Exit(1)
 	}
-	hover.Info.Printf("Hover Server listening on %s\n", listenSocket)
+	util.Info.Printf("Hover Server listening on %s\n", listenSocket)
 	http.ListenAndServe(listenSocket, s.Handler())
 }

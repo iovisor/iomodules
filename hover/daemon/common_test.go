@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package hover
+package daemon
 
 import (
 	"bytes"
@@ -26,6 +26,8 @@ import (
 
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
+
+	"github.com/iovisor/iomodules/hover"
 )
 
 type testCase struct {
@@ -57,20 +59,20 @@ func testSetup(t *testing.T) (*httptest.Server, func()) {
 }
 
 func testNetnsPair(t *testing.T, prefix string) ([]*netlink.Veth, []netns.NsHandle, func()) {
-	testns1 := NewNs()
-	testns2 := NewNs()
+	testns1 := hover.NewNs()
+	testns2 := hover.NewNs()
 
 	cleanup := func() {
 		testns2.Close()
 		testns1.Close()
 	}
 
-	l1, err := NewVeth(testns1, prefix+"1", "eth0", "10.10.1.1/24", nil)
+	l1, err := hover.NewVeth(testns1, prefix+"1", "eth0", "10.10.1.1/24", nil)
 	if err != nil {
 		cleanup()
 		t.Fatal(err)
 	}
-	l2, err := NewVeth(testns2, prefix+"2", "eth0", "10.10.1.2/24", nil)
+	l2, err := hover.NewVeth(testns2, prefix+"2", "eth0", "10.10.1.2/24", nil)
 	if err != nil {
 		cleanup()
 		t.Fatal(err)

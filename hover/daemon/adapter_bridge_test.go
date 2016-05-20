@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package hover
+package daemon
 
 import (
 	"os/exec"
@@ -21,6 +21,9 @@ import (
 
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
+
+	"github.com/iovisor/iomodules/hover"
+	"github.com/iovisor/iomodules/hover/api"
 )
 
 func testBridgeSimpleSetup(t *testing.T, nsPrefix string, br *netlink.Bridge) (
@@ -73,7 +76,7 @@ func TestBridgeDetect(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go RunInNs(nets[0], func() error {
+	go hover.RunInNs(nets[0], func() error {
 		defer wg.Done()
 		out, err := exec.Command("ping", "-c", "1", "10.10.1.2").Output()
 		if err != nil {
@@ -96,7 +99,7 @@ func TestBridgePolicy(t *testing.T) {
 		method: "GET",
 	}, nil)
 
-	var t1 moduleEntry
+	var t1 api.Module
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
 		body: wrapCodePolicy(t, policyC, []string{"b:" + br.Attrs().Name}),
@@ -104,7 +107,7 @@ func TestBridgePolicy(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go RunInNs(nets[0], func() error {
+	go hover.RunInNs(nets[0], func() error {
 		defer wg.Done()
 		out, err := exec.Command("ping", "-c", "1", "10.10.1.2").Output()
 		if err != nil {
@@ -114,7 +117,7 @@ func TestBridgePolicy(t *testing.T) {
 	})
 	wg.Wait()
 
-	var c1, c2 AdapterTablePair
+	var c1, c2 api.ModuleTableEntry
 	testOne(t, testCase{
 		url:    srv.URL + "/modules/" + t1.Id + "/tables/counters/entries/0x0",
 		method: "GET",
@@ -143,7 +146,7 @@ func TestBridgePolicyLinkUpdate(t *testing.T) {
 		method: "GET",
 	}, nil)
 
-	var t1 moduleEntry
+	var t1 api.Module
 	testOne(t, testCase{
 		url:  srv.URL + "/modules/",
 		body: wrapCodePolicy(t, policyC, []string{"b:" + br.Attrs().Name}),

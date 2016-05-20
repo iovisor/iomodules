@@ -14,9 +14,9 @@
 
 // vim: set ts=8:sts=8:sw=8:noet
 
-package hover
+package bpf
 
-var iomoduleH string = `
+var IomoduleH string = `
 #include <bcc/proto.h>
 #include <uapi/linux/pkt_cls.h>
 
@@ -78,7 +78,7 @@ static int pkt_mirror(void *pkt, struct metadata *md, int ifc);
 static int pkt_drop(void *pkt, struct metadata *md);
 `
 
-var netdevRxC string = `
+var NetdevRxC string = `
 BPF_TABLE("extern", int, int, modules, MAX_MODULES);
 int ingress(struct __sk_buff *skb) {
 	//bpf_trace_printk("ingress %d %x\n", skb->ifindex, CHAIN_VALUE0);
@@ -92,7 +92,7 @@ int ingress(struct __sk_buff *skb) {
 }
 `
 
-var netdevTxC string = `
+var NetdevTxC string = `
 int egress(struct __sk_buff *skb) {
 	//bpf_trace_printk("egress %d\n", INTERFACE_ID);
 	bpf_redirect(INTERFACE_ID, 0);
@@ -100,7 +100,7 @@ int egress(struct __sk_buff *skb) {
 }
 `
 
-var netdevEgressC string = `
+var NetdevEgressC string = `
 BPF_TABLE("extern", int, int, modules, MAX_MODULES);
 int egress(struct __sk_buff *skb) {
 	//bpf_trace_printk("egress %d %x\n", skb->ifindex, CHAIN_VALUE0);
@@ -114,7 +114,7 @@ int egress(struct __sk_buff *skb) {
 }
 `
 
-var patchC string = `
+var PatchC string = `
 #include <linux/ptrace.h>
 
 //BPF_TABLE_PUBLIC("array", int, struct metadata, metadata, NUMCPUS);
@@ -222,7 +222,7 @@ int recv_tailcall(struct __sk_buff *skb) {
 #endif
 `
 
-var wrapperC string = `
+var WrapperC string = `
 //BPF_TABLE("extern", int, struct metadata, metadata, NUMCPUS);
 BPF_TABLE("extern", int, int, modules, MAX_MODULES);
 BPF_TABLE("array", int, struct chain, forward_chain, MAX_INTERFACES);
