@@ -15,6 +15,7 @@ Hover framework is a userspace deamon for managing IO/Policy Modules. It exposes
 # make sure you have exported $GOPATH to your workspace directory.
 go get github.com/vishvananda/netns
 go get github.com/willf/bitset
+go get github.com/gorilla/mux
 # to pull customized fork of netlink
 go get github.com/vishvananda/netlink
 cd $GOPATH/src/github.com/vishvananda/netlink
@@ -24,7 +25,7 @@ git reset --hard drzaeus77/master
 
 go get github.com/iovisor/iomodules/hover
 go install github.com/iovisor/iomodules/hover/hoverd
-go test -v github.com/iovisor/iomodules/hover/
+sudo -E go test -v github.com/iovisor/iomodules/hover/daemon
 
 # run the hoverd binary in standalone mode
 sudo $GOPATH/bin/hoverd
