@@ -3,7 +3,7 @@ package database
 import (
 	"fmt"
 
-	"github.com/iomodules/policy/models"
+	"github.com/iovisor/iomodules/policy/models"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"

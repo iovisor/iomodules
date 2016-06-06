@@ -17,10 +17,11 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/iomodules/policy/log"
-	"github.com/iomodules/policy/server"
 	"net/http"
 	"os"
+
+	"github.com/iovisor/iomodules/policy/log"
+	"github.com/iovisor/iomodules/policy/server"
 )
 
 var helpFlag bool

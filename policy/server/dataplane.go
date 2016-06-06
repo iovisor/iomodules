@@ -23,8 +23,8 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/iomodules/policy/log"
-	"github.com/iomodules/policy/models"
+	"github.com/iovisor/iomodules/policy/log"
+	"github.com/iovisor/iomodules/policy/models"
 )
 
 var filterImplC string = `

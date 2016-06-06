@@ -21,9 +21,9 @@ import (
 	"runtime"
 
 	"github.com/gorilla/mux"
-	"github.com/iomodules/policy/database"
-	"github.com/iomodules/policy/log"
-	"github.com/iomodules/policy/models"
+	"github.com/iovisor/iomodules/policy/database"
+	"github.com/iovisor/iomodules/policy/log"
+	"github.com/iovisor/iomodules/policy/models"
 )
 
 type routeResponse struct {
@@ -37,7 +37,6 @@ type PolicyServer struct {
 	Dataplane  dataplane
 	Db         database.Database
 }
-
 type handlerFunc func(r *http.Request) routeResponse
 
 func makeHandler(fn handlerFunc) http.HandlerFunc {
