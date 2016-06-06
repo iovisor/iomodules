@@ -1,8 +1,8 @@
 package database_test
 
 import (
-	"github.com/iomodules/policy/database"
-	"github.com/iomodules/policy/models"
+	"github.com/iovisor/iomodules/policy/database"
+	"github.com/iovisor/iomodules/policy/models"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -121,6 +121,27 @@ var _ = Describe("Database", func() {
 			e, err := db.GetEndpoint("some-uuid1")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(e).To(Equal(models.EndpointEntry{Id: "some-uuid1"}))
+		})
+	})
+	Describe("Get Endpoint by name", func() {
+		BeforeEach(func() {
+			endpoints := []models.EndpointEntry{
+				{Id: "some-uuid1",
+					Epg: "db"},
+				{Id: "some-uuid2",
+					Epg: "app"},
+				{Id: "some-uuid3",
+					Epg: "web"},
+			}
+			for _, p := range endpoints {
+				Expect(db.AddEndpoint(p)).To(Succeed())
+			}
+		})
+		It("Gets an endpoint entry from the database", func() {
+			e, err := db.GetEndpointByName("app")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(e).To(Equal(models.EndpointEntry{Id: "some-uuid2", Epg: "app"}))
+
 		})
 	})
 })

@@ -7,9 +7,8 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/iomodules/policy/models"
-	. "github.com/iomodules/policy/server"
-
+	"github.com/iovisor/iomodules/policy/models"
+	. "github.com/iovisor/iomodules/policy/server"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/ghttp"

@@ -61,7 +61,8 @@ type Dataplane struct {
 	idReturns     struct {
 		result1 string
 	}
-	invocations map[string][][]interface{}
+	invocations      map[string][][]interface{}
+	invocationsMutex sync.RWMutex
 }
 
 func (fake *Dataplane) AddEndpoint(ip string, epg string, wireid string) error {
@@ -71,8 +72,7 @@ func (fake *Dataplane) AddEndpoint(ip string, epg string, wireid string) error {
 		epg    string
 		wireid string
 	}{ip, epg, wireid})
-	fake.guard("AddEndpoint")
-	fake.invocations["AddEndpoint"] = append(fake.invocations["AddEndpoint"], []interface{}{ip, epg, wireid})
+	fake.recordInvocation("AddEndpoint", []interface{}{ip, epg, wireid})
 	fake.addEndpointMutex.Unlock()
 	if fake.AddEndpointStub != nil {
 		return fake.AddEndpointStub(ip, epg, wireid)
@@ -105,8 +105,7 @@ func (fake *Dataplane) DeleteEndpoint(ip string) error {
 	fake.deleteEndpointArgsForCall = append(fake.deleteEndpointArgsForCall, struct {
 		ip string
 	}{ip})
-	fake.guard("DeleteEndpoint")
-	fake.invocations["DeleteEndpoint"] = append(fake.invocations["DeleteEndpoint"], []interface{}{ip})
+	fake.recordInvocation("DeleteEndpoint", []interface{}{ip})
 	fake.deleteEndpointMutex.Unlock()
 	if fake.DeleteEndpointStub != nil {
 		return fake.DeleteEndpointStub(ip)
@@ -144,8 +143,7 @@ func (fake *Dataplane) AddPolicy(sepgId string, sourcePort string, depgId string
 		protocol   string
 		action     string
 	}{sepgId, sourcePort, depgId, destPort, protocol, action})
-	fake.guard("AddPolicy")
-	fake.invocations["AddPolicy"] = append(fake.invocations["AddPolicy"], []interface{}{sepgId, sourcePort, depgId, destPort, protocol, action})
+	fake.recordInvocation("AddPolicy", []interface{}{sepgId, sourcePort, depgId, destPort, protocol, action})
 	fake.addPolicyMutex.Unlock()
 	if fake.AddPolicyStub != nil {
 		return fake.AddPolicyStub(sepgId, sourcePort, depgId, destPort, protocol, action)
@@ -182,8 +180,7 @@ func (fake *Dataplane) DeletePolicy(sepgId string, sourcePort string, depgId str
 		destPort   string
 		protocol   string
 	}{sepgId, sourcePort, depgId, destPort, protocol})
-	fake.guard("DeletePolicy")
-	fake.invocations["DeletePolicy"] = append(fake.invocations["DeletePolicy"], []interface{}{sepgId, sourcePort, depgId, destPort, protocol})
+	fake.recordInvocation("DeletePolicy", []interface{}{sepgId, sourcePort, depgId, destPort, protocol})
 	fake.deletePolicyMutex.Unlock()
 	if fake.DeletePolicyStub != nil {
 		return fake.DeletePolicyStub(sepgId, sourcePort, depgId, destPort, protocol)
@@ -216,8 +213,7 @@ func (fake *Dataplane) Init(Url string) error {
 	fake.initArgsForCall = append(fake.initArgsForCall, struct {
 		Url string
 	}{Url})
-	fake.guard("Init")
-	fake.invocations["Init"] = append(fake.invocations["Init"], []interface{}{Url})
+	fake.recordInvocation("Init", []interface{}{Url})
 	fake.initMutex.Unlock()
 	if fake.InitStub != nil {
 		return fake.InitStub(Url)
@@ -248,8 +244,7 @@ func (fake *Dataplane) InitReturns(result1 error) {
 func (fake *Dataplane) Id() string {
 	fake.idMutex.Lock()
 	fake.idArgsForCall = append(fake.idArgsForCall, struct{}{})
-	fake.guard("Id")
-	fake.invocations["Id"] = append(fake.invocations["Id"], []interface{}{})
+	fake.recordInvocation("Id", []interface{}{})
 	fake.idMutex.Unlock()
 	if fake.IdStub != nil {
 		return fake.IdStub()
@@ -272,14 +267,31 @@ func (fake *Dataplane) IdReturns(result1 string) {
 }
 
 func (fake *Dataplane) Invocations() map[string][][]interface{} {
+	fake.invocationsMutex.RLock()
+	defer fake.invocationsMutex.RUnlock()
+	fake.addEndpointMutex.RLock()
+	defer fake.addEndpointMutex.RUnlock()
+	fake.deleteEndpointMutex.RLock()
+	defer fake.deleteEndpointMutex.RUnlock()
+	fake.addPolicyMutex.RLock()
+	defer fake.addPolicyMutex.RUnlock()
+	fake.deletePolicyMutex.RLock()
+	defer fake.deletePolicyMutex.RUnlock()
+	fake.initMutex.RLock()
+	defer fake.initMutex.RUnlock()
+	fake.idMutex.RLock()
+	defer fake.idMutex.RUnlock()
 	return fake.invocations
 }
 
-func (fake *Dataplane) guard(key string) {
+func (fake *Dataplane) recordInvocation(key string, args []interface{}) {
+	fake.invocationsMutex.Lock()
+	defer fake.invocationsMutex.Unlock()
 	if fake.invocations == nil {
 		fake.invocations = map[string][][]interface{}{}
 	}
 	if fake.invocations[key] == nil {
 		fake.invocations[key] = [][]interface{}{}
 	}
+	fake.invocations[key] = append(fake.invocations[key], args)
 }

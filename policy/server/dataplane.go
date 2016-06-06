@@ -265,7 +265,7 @@ func (d *Dataplane) Init(baseUrl string) error {
 		"config": map[string]interface{}{
 			"code": filterImplC,
 		},
-		//"tags" : []string {"b:"+modstr, "i:vxlan2050642",},
+		//"tags": []string{"b:" + modstr, "i:vxlan2050642"},
 	}
 	var module models.ModuleEntry
 	err := d.PostObject("/modules/", req, &module)

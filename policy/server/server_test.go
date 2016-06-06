@@ -1,10 +1,9 @@
 package server_test
 
 import (
-	"github.com/iomodules/policy/fakes"
-	"github.com/iomodules/policy/models"
-	"github.com/iomodules/policy/server"
-
+	"github.com/iovisor/iomodules/policy/fakes"
+	"github.com/iovisor/iomodules/policy/models"
+	"github.com/iovisor/iomodules/policy/server"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
@@ -38,13 +37,14 @@ var _ = Describe("Server", func() {
 			}
 		})
 		It("Adds the ip and endpoint group to the database", func() {
-			err := policyServer.AddEndpoint(endpoint)
+			err := policyServer.AddEndpoint(&endpoint)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(db.AddEndpointCallCount()).To(Equal(1))
 			ep := db.AddEndpointArgsForCall(0)
-			Expect(ep).To(Equal(endpoint))
-
+			Expect(ep.Ip).To(Equal(endpoint.Ip))
+			Expect(ep.WireId).To(Equal(endpoint.WireId))
+			Expect(ep.Id).NotTo(Equal(""))
 			Expect(dataplane.AddEndpointCallCount()).To(Equal(1))
 		})
 
@@ -54,7 +54,7 @@ var _ = Describe("Server", func() {
 			})
 
 			It("returns an error", func() {
-				err := policyServer.AddEndpoint(endpoint)
+				err := policyServer.AddEndpoint(&endpoint)
 				Expect(err).To(MatchError("add endpoint to Db: potato"))
 			})
 		})
@@ -64,7 +64,7 @@ var _ = Describe("Server", func() {
 			})
 
 			It("returns an error", func() {
-				err := policyServer.AddEndpoint(endpoint)
+				err := policyServer.AddEndpoint(&endpoint)
 				Expect(err).To(MatchError("add endpoint to dataplane: potato"))
 			})
 		})
@@ -135,6 +135,7 @@ var _ = Describe("Server", func() {
 		)
 		BeforeEach(func() {
 			policy = models.Policy{
+				Id:         "some-id",
 				SourceEPG:  "some-wire-id",
 				SourcePort: "source-port",
 				DestEPG:    "some-wire-id",
@@ -148,10 +149,10 @@ var _ = Describe("Server", func() {
 				Epg:    "some-epg",
 				WireId: "some-wire-id",
 			}
-			db.GetEndpointReturns(endpoint, nil)
+			db.GetEndpointByNameReturns(endpoint, nil)
 		})
 		It("add a policy", func() {
-			err := policyServer.AddPolicy(policy)
+			err := policyServer.AddPolicy(&policy)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(dataplane.AddPolicyCallCount()).To(Equal(1))
@@ -165,14 +166,14 @@ var _ = Describe("Server", func() {
 
 			Expect(db.AddPolicyCallCount()).To(Equal(1))
 			dbPolicy := db.AddPolicyArgsForCall(0)
-			Expect(dbPolicy).To(Equal(policy))
+			Expect(dbPolicy.Id).NotTo(Equal(""))
 		})
 		Context("when adding the policy to the dataplane it errors", func() {
 			BeforeEach(func() {
 				dataplane.AddPolicyReturns(errors.New("some-potato"))
 			})
 			It("returns error", func() {
-				err := policyServer.AddPolicy(policy)
+				err := policyServer.AddPolicy(&policy)
 				Expect(err).To(MatchError("add policy to dataplane: some-potato"))
 			})
 		})
@@ -181,7 +182,7 @@ var _ = Describe("Server", func() {
 				db.AddPolicyReturns(errors.New("some-potato"))
 			})
 			It("returns error", func() {
-				err := policyServer.AddPolicy(policy)
+				err := policyServer.AddPolicy(&policy)
 				Expect(err).To(MatchError("add policy to Db: some-potato"))
 			})
 		})
@@ -260,7 +261,7 @@ var _ = Describe("Server", func() {
 				Protocol:   "protocol",
 				Action:     "action",
 			}
-			db.GetEndpointReturns(models.EndpointEntry{WireId: "some-wire-id", Id: "some-id", Ip: "some-ip", Epg: "some-epg"}, nil)
+			db.GetEndpointByNameReturns(models.EndpointEntry{WireId: "some-wire-id", Id: "some-id", Ip: "some-ip", Epg: "some-epg"}, nil)
 			db.GetPolicyReturns(policy, nil)
 		})
 		It("deletes a policy from the policy server", func() {

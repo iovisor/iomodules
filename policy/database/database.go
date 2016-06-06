@@ -19,6 +19,7 @@ type Database interface {
 	DeletePolicy(PolicyId string) error
 	GetPolicy(PolicyId string) (models.Policy, error)
 	GetEndpoint(EndpointId string) (models.EndpointEntry, error)
+	GetEndpointByName(epg string) (models.EndpointEntry, error)
 }
 
 type database struct {
@@ -35,7 +36,7 @@ func Init(sqlUrl string) (Database, error) {
 	schema := `CREATE TABLE Endpoints (
 		id text PRIMARY KEY,
 		ip text,
-		epg text)`
+		epg text SECONDARY KEY)`
 
 	_, err = sqlxDb.Exec(schema)
 	if err != nil {
@@ -90,10 +91,21 @@ func (dbPtr *database) Endpoints() ([]models.EndpointEntry, error) {
 	return endpoints, nil
 }
 
+func (dbPtr *database) GetEndpointByName(epg string) (models.EndpointEntry, error) {
+	endpoints := models.EndpointEntry{}
+
+	err := dbPtr.db.Get(&endpoints, "SELECT * from Endpoints WHERE epg=$1", epg)
+	if err != nil {
+		fmt.Errorf("database get endpoints by name: %s", err)
+	}
+	return endpoints, nil
+}
+
 func (dbPtr *database) GetEndpoint(id string) (models.EndpointEntry, error) {
 	endpoints := models.EndpointEntry{}
 
 	err := dbPtr.db.Get(&endpoints, "SELECT * from Endpoints WHERE id=$1", id)
+
 	if err != nil {
 		fmt.Errorf("database get endpoints: %s", err)
 	}

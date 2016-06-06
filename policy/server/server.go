@@ -24,6 +24,7 @@ import (
 	"github.com/iovisor/iomodules/policy/database"
 	"github.com/iovisor/iomodules/policy/log"
 	"github.com/iovisor/iomodules/policy/models"
+	"github.com/satori/go.uuid"
 )
 
 type routeResponse struct {
@@ -150,7 +151,7 @@ func (g *PolicyServer) handlePolicyPost(r *http.Request) routeResponse {
 	if err != nil {
 		panic(err)
 	}
-	err = g.AddPolicy(req)
+	err = g.AddPolicy(&req)
 	if err != nil {
 		panic(err)
 	}
@@ -194,7 +195,7 @@ func (g *PolicyServer) handleEndpointPost(r *http.Request) routeResponse {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		panic(err)
 	}
-	if err := g.AddEndpoint(req); err != nil {
+	if err := g.AddEndpoint(&req); err != nil {
 		panic(err)
 	}
 	return routeResponse{body: req}
@@ -238,13 +239,13 @@ func (g *PolicyServer) Endpoints() ([]models.EndpointEntry, error) {
 	return endpoints, nil
 }
 
-func (g *PolicyServer) AddPolicy(policy models.Policy) error {
+func (g *PolicyServer) AddPolicy(policy *models.Policy) error {
 
-	sepg, err := g.Db.GetEndpoint(policy.SourceEPG)
+	sepg, err := g.Db.GetEndpointByName(policy.SourceEPG)
 	if err != nil {
 		return fmt.Errorf("get epg from Db: %s", err)
 	}
-	depg, err := g.Db.GetEndpoint(policy.DestEPG)
+	depg, err := g.Db.GetEndpointByName(policy.DestEPG)
 	if err != nil {
 		return fmt.Errorf("get epg from DB: %s", err)
 	}
@@ -253,7 +254,8 @@ func (g *PolicyServer) AddPolicy(policy models.Policy) error {
 	if err != nil {
 		return fmt.Errorf("add policy to dataplane: %s", err)
 	}
-	err = g.Db.AddPolicy(policy)
+	policy.Id = uuid.NewV4().String()
+	err = g.Db.AddPolicy(*policy)
 	if err != nil {
 		return fmt.Errorf("add policy to Db: %s", err)
 	}
@@ -265,11 +267,11 @@ func (g *PolicyServer) DeletePolicy(PolicyId string) error {
 	if err != nil {
 		return fmt.Errorf("get policy from db: %s", err)
 	}
-	sepg, err := g.Db.GetEndpoint(policy.SourceEPG)
+	sepg, err := g.Db.GetEndpointByName(policy.SourceEPG)
 	if err != nil {
 		return fmt.Errorf("get epg from Db: %s", err)
 	}
-	depg, err := g.Db.GetEndpoint(policy.DestEPG)
+	depg, err := g.Db.GetEndpointByName(policy.DestEPG)
 	if err != nil {
 		return fmt.Errorf("get epg from Db: %s", err)
 	}
@@ -300,14 +302,15 @@ func (g *PolicyServer) GetEndpoint(EndpointId string) (models.EndpointEntry, err
 	return endpoint, nil
 }
 
-func (g *PolicyServer) AddEndpoint(endpoint models.EndpointEntry) error {
-	err := g.Db.AddEndpoint(endpoint)
-	if err != nil {
-		return fmt.Errorf("add endpoint to Db: %s", err)
-	}
-	err = g.Dataplane.AddEndpoint(endpoint.Ip, endpoint.Epg, endpoint.WireId)
+func (g *PolicyServer) AddEndpoint(endpoint *models.EndpointEntry) error {
+	err := g.Dataplane.AddEndpoint(endpoint.Ip, endpoint.Epg, endpoint.WireId)
 	if err != nil {
 		return fmt.Errorf("add endpoint to dataplane: %s", err)
+	}
+	endpoint.Id = uuid.NewV4().String()
+	err = g.Db.AddEndpoint(*endpoint)
+	if err != nil {
+		return fmt.Errorf("add endpoint to Db: %s", err)
 	}
 	return nil
 }

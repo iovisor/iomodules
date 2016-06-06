@@ -4,8 +4,8 @@ package fakes
 import (
 	"sync"
 
-	"github.com/iomodules/policy/database"
-	"github.com/iomodules/policy/models"
+	"github.com/iovisor/iomodules/policy/database"
+	"github.com/iovisor/iomodules/policy/models"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -74,14 +74,23 @@ type Database struct {
 		result1 models.EndpointEntry
 		result2 error
 	}
-	invocations map[string][][]interface{}
+	GetEndpointByNameStub        func(epg string) (models.EndpointEntry, error)
+	getEndpointByNameMutex       sync.RWMutex
+	getEndpointByNameArgsForCall []struct {
+		epg string
+	}
+	getEndpointByNameReturns struct {
+		result1 models.EndpointEntry
+		result2 error
+	}
+	invocations      map[string][][]interface{}
+	invocationsMutex sync.RWMutex
 }
 
 func (fake *Database) Endpoints() ([]models.EndpointEntry, error) {
 	fake.endpointsMutex.Lock()
 	fake.endpointsArgsForCall = append(fake.endpointsArgsForCall, struct{}{})
-	fake.guard("Endpoints")
-	fake.invocations["Endpoints"] = append(fake.invocations["Endpoints"], []interface{}{})
+	fake.recordInvocation("Endpoints", []interface{}{})
 	fake.endpointsMutex.Unlock()
 	if fake.EndpointsStub != nil {
 		return fake.EndpointsStub()
@@ -107,8 +116,7 @@ func (fake *Database) EndpointsReturns(result1 []models.EndpointEntry, result2 e
 func (fake *Database) Policies() ([]models.Policy, error) {
 	fake.policiesMutex.Lock()
 	fake.policiesArgsForCall = append(fake.policiesArgsForCall, struct{}{})
-	fake.guard("Policies")
-	fake.invocations["Policies"] = append(fake.invocations["Policies"], []interface{}{})
+	fake.recordInvocation("Policies", []interface{}{})
 	fake.policiesMutex.Unlock()
 	if fake.PoliciesStub != nil {
 		return fake.PoliciesStub()
@@ -136,8 +144,7 @@ func (fake *Database) AddEndpoint(arg1 models.EndpointEntry) error {
 	fake.addEndpointArgsForCall = append(fake.addEndpointArgsForCall, struct {
 		arg1 models.EndpointEntry
 	}{arg1})
-	fake.guard("AddEndpoint")
-	fake.invocations["AddEndpoint"] = append(fake.invocations["AddEndpoint"], []interface{}{arg1})
+	fake.recordInvocation("AddEndpoint", []interface{}{arg1})
 	fake.addEndpointMutex.Unlock()
 	if fake.AddEndpointStub != nil {
 		return fake.AddEndpointStub(arg1)
@@ -170,8 +177,7 @@ func (fake *Database) AddPolicy(arg1 models.Policy) error {
 	fake.addPolicyArgsForCall = append(fake.addPolicyArgsForCall, struct {
 		arg1 models.Policy
 	}{arg1})
-	fake.guard("AddPolicy")
-	fake.invocations["AddPolicy"] = append(fake.invocations["AddPolicy"], []interface{}{arg1})
+	fake.recordInvocation("AddPolicy", []interface{}{arg1})
 	fake.addPolicyMutex.Unlock()
 	if fake.AddPolicyStub != nil {
 		return fake.AddPolicyStub(arg1)
@@ -204,8 +210,7 @@ func (fake *Database) DeleteEndpoint(EpId string) error {
 	fake.deleteEndpointArgsForCall = append(fake.deleteEndpointArgsForCall, struct {
 		EpId string
 	}{EpId})
-	fake.guard("DeleteEndpoint")
-	fake.invocations["DeleteEndpoint"] = append(fake.invocations["DeleteEndpoint"], []interface{}{EpId})
+	fake.recordInvocation("DeleteEndpoint", []interface{}{EpId})
 	fake.deleteEndpointMutex.Unlock()
 	if fake.DeleteEndpointStub != nil {
 		return fake.DeleteEndpointStub(EpId)
@@ -238,8 +243,7 @@ func (fake *Database) DeletePolicy(PolicyId string) error {
 	fake.deletePolicyArgsForCall = append(fake.deletePolicyArgsForCall, struct {
 		PolicyId string
 	}{PolicyId})
-	fake.guard("DeletePolicy")
-	fake.invocations["DeletePolicy"] = append(fake.invocations["DeletePolicy"], []interface{}{PolicyId})
+	fake.recordInvocation("DeletePolicy", []interface{}{PolicyId})
 	fake.deletePolicyMutex.Unlock()
 	if fake.DeletePolicyStub != nil {
 		return fake.DeletePolicyStub(PolicyId)
@@ -272,8 +276,7 @@ func (fake *Database) GetPolicy(PolicyId string) (models.Policy, error) {
 	fake.getPolicyArgsForCall = append(fake.getPolicyArgsForCall, struct {
 		PolicyId string
 	}{PolicyId})
-	fake.guard("GetPolicy")
-	fake.invocations["GetPolicy"] = append(fake.invocations["GetPolicy"], []interface{}{PolicyId})
+	fake.recordInvocation("GetPolicy", []interface{}{PolicyId})
 	fake.getPolicyMutex.Unlock()
 	if fake.GetPolicyStub != nil {
 		return fake.GetPolicyStub(PolicyId)
@@ -307,8 +310,7 @@ func (fake *Database) GetEndpoint(EndpointId string) (models.EndpointEntry, erro
 	fake.getEndpointArgsForCall = append(fake.getEndpointArgsForCall, struct {
 		EndpointId string
 	}{EndpointId})
-	fake.guard("GetEndpoint")
-	fake.invocations["GetEndpoint"] = append(fake.invocations["GetEndpoint"], []interface{}{EndpointId})
+	fake.recordInvocation("GetEndpoint", []interface{}{EndpointId})
 	fake.getEndpointMutex.Unlock()
 	if fake.GetEndpointStub != nil {
 		return fake.GetEndpointStub(EndpointId)
@@ -337,17 +339,74 @@ func (fake *Database) GetEndpointReturns(result1 models.EndpointEntry, result2 e
 	}{result1, result2}
 }
 
+func (fake *Database) GetEndpointByName(epg string) (models.EndpointEntry, error) {
+	fake.getEndpointByNameMutex.Lock()
+	fake.getEndpointByNameArgsForCall = append(fake.getEndpointByNameArgsForCall, struct {
+		epg string
+	}{epg})
+	fake.recordInvocation("GetEndpointByName", []interface{}{epg})
+	fake.getEndpointByNameMutex.Unlock()
+	if fake.GetEndpointByNameStub != nil {
+		return fake.GetEndpointByNameStub(epg)
+	} else {
+		return fake.getEndpointByNameReturns.result1, fake.getEndpointByNameReturns.result2
+	}
+}
+
+func (fake *Database) GetEndpointByNameCallCount() int {
+	fake.getEndpointByNameMutex.RLock()
+	defer fake.getEndpointByNameMutex.RUnlock()
+	return len(fake.getEndpointByNameArgsForCall)
+}
+
+func (fake *Database) GetEndpointByNameArgsForCall(i int) string {
+	fake.getEndpointByNameMutex.RLock()
+	defer fake.getEndpointByNameMutex.RUnlock()
+	return fake.getEndpointByNameArgsForCall[i].epg
+}
+
+func (fake *Database) GetEndpointByNameReturns(result1 models.EndpointEntry, result2 error) {
+	fake.GetEndpointByNameStub = nil
+	fake.getEndpointByNameReturns = struct {
+		result1 models.EndpointEntry
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *Database) Invocations() map[string][][]interface{} {
+	fake.invocationsMutex.RLock()
+	defer fake.invocationsMutex.RUnlock()
+	fake.endpointsMutex.RLock()
+	defer fake.endpointsMutex.RUnlock()
+	fake.policiesMutex.RLock()
+	defer fake.policiesMutex.RUnlock()
+	fake.addEndpointMutex.RLock()
+	defer fake.addEndpointMutex.RUnlock()
+	fake.addPolicyMutex.RLock()
+	defer fake.addPolicyMutex.RUnlock()
+	fake.deleteEndpointMutex.RLock()
+	defer fake.deleteEndpointMutex.RUnlock()
+	fake.deletePolicyMutex.RLock()
+	defer fake.deletePolicyMutex.RUnlock()
+	fake.getPolicyMutex.RLock()
+	defer fake.getPolicyMutex.RUnlock()
+	fake.getEndpointMutex.RLock()
+	defer fake.getEndpointMutex.RUnlock()
+	fake.getEndpointByNameMutex.RLock()
+	defer fake.getEndpointByNameMutex.RUnlock()
 	return fake.invocations
 }
 
-func (fake *Database) guard(key string) {
+func (fake *Database) recordInvocation(key string, args []interface{}) {
+	fake.invocationsMutex.Lock()
+	defer fake.invocationsMutex.Unlock()
 	if fake.invocations == nil {
 		fake.invocations = map[string][][]interface{}{}
 	}
 	if fake.invocations[key] == nil {
 		fake.invocations[key] = [][]interface{}{}
 	}
+	fake.invocations[key] = append(fake.invocations[key], args)
 }
 
 var _ database.Database = new(Database)
