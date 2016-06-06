@@ -105,8 +105,9 @@ var _ = Describe("Server", func() {
 		BeforeEach(func() {
 			dbEndpoints = []models.EndpointEntry{
 				{
-					Ip:  "some-ip",
-					Epg: "some-epg",
+					WireId: "some-wire-id",
+					Ip:     "some-ip",
+					Epg:    "some-epg",
 				},
 			}
 			db.EndpointsReturns(dbEndpoints, nil)

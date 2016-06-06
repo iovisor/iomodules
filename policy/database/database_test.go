@@ -17,9 +17,10 @@ var _ = Describe("Database", func() {
 	})
 	Describe("Endpoints", func() {
 		var endpoint = models.EndpointEntry{
-			Id:  "some-uuid",
-			Ip:  "some-ip",
-			Epg: "some-epg"}
+			Id:     "some-uuid",
+			Ip:     "some-ip",
+			Epg:    "some-epg",
+			WireId: "some-wire-id"}
 		BeforeEach(func() {
 			err := db.AddEndpoint(endpoint)
 			Expect(err).NotTo(HaveOccurred())

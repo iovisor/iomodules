@@ -36,6 +36,7 @@ func Init(sqlUrl string) (Database, error) {
 	schema := `CREATE TABLE Endpoints (
 		id text PRIMARY KEY,
 		ip text,
+		wireid text,
 		epg text SECONDARY KEY)`
 
 	_, err = sqlxDb.Exec(schema)
@@ -64,9 +65,9 @@ func Init(sqlUrl string) (Database, error) {
 func (dbPtr *database) AddEndpoint(endpoint models.EndpointEntry) error {
 	_, err := dbPtr.db.NamedExec(`
 	INSERT INTO Endpoints (
-		id, ip, epg
+		id, ip, epg, wireid
 	) VALUES (
-		:id, :ip, :epg
+		:id, :ip, :epg, :wireid
 	)`, &endpoint)
 
 	if err != nil {
