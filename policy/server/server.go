@@ -241,11 +241,11 @@ func (g *PolicyServer) Endpoints() ([]models.EndpointEntry, error) {
 
 func (g *PolicyServer) AddPolicy(policy *models.Policy) error {
 
-	sepg, err := g.Db.GetEndpoint(policy.SourceEPG)
+	sepg, err := g.Db.GetEndpointByName(policy.SourceEPG)
 	if err != nil {
 		return fmt.Errorf("get epg from Db: %s", err)
 	}
-	depg, err := g.Db.GetEndpoint(policy.DestEPG)
+	depg, err := g.Db.GetEndpointByName(policy.DestEPG)
 	if err != nil {
 		return fmt.Errorf("get epg from DB: %s", err)
 	}
@@ -267,11 +267,11 @@ func (g *PolicyServer) DeletePolicy(PolicyId string) error {
 	if err != nil {
 		return fmt.Errorf("get policy from db: %s", err)
 	}
-	sepg, err := g.Db.GetEndpoint(policy.SourceEPG)
+	sepg, err := g.Db.GetEndpointByName(policy.SourceEPG)
 	if err != nil {
 		return fmt.Errorf("get epg from Db: %s", err)
 	}
-	depg, err := g.Db.GetEndpoint(policy.DestEPG)
+	depg, err := g.Db.GetEndpointByName(policy.DestEPG)
 	if err != nil {
 		return fmt.Errorf("get epg from Db: %s", err)
 	}

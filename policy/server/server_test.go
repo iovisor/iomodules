@@ -150,7 +150,7 @@ var _ = Describe("Server", func() {
 				Epg:    "some-epg",
 				WireId: "some-wire-id",
 			}
-			db.GetEndpointReturns(endpoint, nil)
+			db.GetEndpointByNameReturns(endpoint, nil)
 		})
 		It("add a policy", func() {
 			err := policyServer.AddPolicy(&policy)
@@ -262,7 +262,7 @@ var _ = Describe("Server", func() {
 				Protocol:   "protocol",
 				Action:     "action",
 			}
-			db.GetEndpointReturns(models.EndpointEntry{WireId: "some-wire-id", Id: "some-id", Ip: "some-ip", Epg: "some-epg"}, nil)
+			db.GetEndpointByNameReturns(models.EndpointEntry{WireId: "some-wire-id", Id: "some-id", Ip: "some-ip", Epg: "some-epg"}, nil)
 			db.GetPolicyReturns(policy, nil)
 		})
 		It("deletes a policy from the policy server", func() {
