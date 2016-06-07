@@ -344,6 +344,12 @@ func (d *Dataplane) AddPolicy(sepgId, sourcePort, depgId, destPort, protocol, ac
 }
 
 func (d *Dataplane) DeletePolicy(sepgId, sourcePort, depgId, destPort, protocol string) error {
+	if len(sourcePort) == 0 {
+		sourcePort = "0"
+	}
+	if len(destPort) == 0 {
+		destPort = "0"
+	}
 	k := fmt.Sprintf("{ %s %s %s %s %s [ 0 0 0 ]}", sepgId, depgId, sourcePort, destPort, protocol)
 	err := d.deleteObject("/modules/" + d.id + "/tables/rules/entries/" + k)
 	if err != nil {
