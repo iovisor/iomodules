@@ -311,7 +311,11 @@ func (g *PolicyServer) GetEndpoint(EndpointId string) (models.EndpointEntry, err
 }
 
 func (g *PolicyServer) AddEndpoint(endpoint *models.EndpointEntry) error {
-	err := g.Dataplane.AddEndpoint(endpoint.Ip, endpoint.Epg, endpoint.WireId)
+	epg, err := g.Db.GetEndpointGroup(endpoint.EpgId)
+	if err != nil {
+		return err
+	}
+	err = g.Dataplane.AddEndpoint(endpoint.Ip, epg.Epg, epg.WireId)
 	if err != nil {
 		return fmt.Errorf("add endpoint to dataplane: %s", err)
 	}

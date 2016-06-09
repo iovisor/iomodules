@@ -30,11 +30,11 @@ var _ = Describe("Server", func() {
 		var endpoint models.EndpointEntry
 		BeforeEach(func() {
 			endpoint = models.EndpointEntry{
-				WireId: "some-wire-id",
-				Id:     "some-id",
-				Ip:     "some-ip",
-				Epg:    "some-epg",
+				Id:    "some-id",
+				Ip:    "some-ip",
+				EpgId: "some-epg",
 			}
+			db.GetEndpointGroupReturns(models.EndpointGroup{Id: "some-id", Epg: "some-epg", WireId: "some-wire-id"}, nil)
 		})
 		It("Adds the ip and endpoint group to the database", func() {
 			err := policyServer.AddEndpoint(&endpoint)
@@ -43,9 +43,12 @@ var _ = Describe("Server", func() {
 			Expect(db.AddEndpointCallCount()).To(Equal(1))
 			ep := db.AddEndpointArgsForCall(0)
 			Expect(ep.Ip).To(Equal(endpoint.Ip))
-			Expect(ep.WireId).To(Equal(endpoint.WireId))
 			Expect(ep.Id).NotTo(Equal(""))
 			Expect(dataplane.AddEndpointCallCount()).To(Equal(1))
+			ip, epg, wireid := dataplane.AddEndpointArgsForCall(0)
+			Expect(ip).To(Equal(endpoint.Ip))
+			Expect(wireid).To(Equal("some-wire-id"))
+			Expect(epg).To(Equal("some-epg"))
 		})
 
 		Context("when adding to the db fails", func() {
@@ -74,10 +77,9 @@ var _ = Describe("Server", func() {
 
 		BeforeEach(func() {
 			dbEndpoint = models.EndpointEntry{
-				WireId: "some-wire-id",
-				Id:     "some-uuid",
-				Ip:     "some-ip",
-				Epg:    "some-epg",
+				Id:    "some-uuid",
+				Ip:    "some-ip",
+				EpgId: "some-epg-id",
 			}
 			db.GetEndpointReturns(dbEndpoint, nil)
 		})
@@ -105,9 +107,8 @@ var _ = Describe("Server", func() {
 		BeforeEach(func() {
 			dbEndpoints = []models.EndpointEntry{
 				{
-					WireId: "some-wire-id",
-					Ip:     "some-ip",
-					Epg:    "some-epg",
+					Ip:    "some-ip",
+					EpgId: "some-epg",
 				},
 			}
 			db.EndpointsReturns(dbEndpoints, nil)
@@ -221,7 +222,7 @@ var _ = Describe("Server", func() {
 	})
 	Describe("Delete Endpoint", func() {
 		BeforeEach(func() {
-			db.GetEndpointReturns(models.EndpointEntry{Id: "some-id", Ip: "some-ip", Epg: "some-epg"}, nil)
+			db.GetEndpointReturns(models.EndpointEntry{Id: "some-id", Ip: "some-ip", EpgId: "some-epg"}, nil)
 		})
 		It("deletes an endpoint from the dataplane", func() {
 			err := policyServer.DeleteEndpoint("some-ep-id")
