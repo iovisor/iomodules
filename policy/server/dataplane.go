@@ -107,23 +107,36 @@ static int handle_egress(void *skb, struct metadata *md) {
 
 EOP: ;
 	int *result;
-	struct match m1 = {src_tag, dst_tag, 0, 0, m.proto};
+	struct match m1 = {src_tag, dst_tag, m.sport, m.dport, m.proto};
 	result = rules.lookup(&m1);
 	if (result) {
 		ret = *result;
 		bpf_trace_printk("m %d %d = %d\n", src_tag, dst_tag, ret);
 		goto DONE;
 	}
-	struct match m2 = {dst_tag, src_tag, 0, 0, m.proto};
+	struct match m2 = {src_tag, dst_tag, 0, m.dport, m.proto};
 	result = rules.lookup(&m2);
+	if (result) {
+		ret = *result;
+		bpf_trace_printk("m %d %d = %d\n", src_tag, dst_tag, ret);
+		goto DONE;
+	}
+	struct match m3 = {src_tag, dst_tag, m.sport, 0, m.proto};
+	result = rules.lookup(&m3);
+	if (result) {
+		ret = *result;
+		bpf_trace_printk("m %d %d = %d\n", src_tag, dst_tag, ret);
+		goto DONE;
+	}
+	struct match m4 = {src_tag, dst_tag, 0, 0, m.proto};
+	result = rules.lookup(&m4);
 	if (result) {
 		ret = *result;
 		bpf_trace_printk("m %d %d = %d\n", dst_tag, src_tag, ret);
 		goto DONE;
 	}
-
 DONE:
-	return ret;
+    return ret;
 }
 
 static int handle_ingress(void *skb, struct metadata *md) {
