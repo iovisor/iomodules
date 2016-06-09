@@ -239,13 +239,21 @@ func (g *PolicyServer) Endpoints() ([]models.EndpointEntry, error) {
 	return endpoints, nil
 }
 
+func (g *PolicyServer) EndpointGroups() ([]models.EndpointGroup, error) {
+	epgs, err := g.Db.EndpointGroups()
+	if err != nil {
+		return nil, fmt.Errorf("get epgs from Db: %s", err)
+	}
+	return epgs, nil
+}
+
 func (g *PolicyServer) AddPolicy(policy *models.Policy) error {
 
-	sepg, err := g.Db.GetEndpointByName(policy.SourceEPG)
+	sepg, err := g.Db.GetEndpointGroup(policy.SourceEPG)
 	if err != nil {
 		return fmt.Errorf("get epg from Db: %s", err)
 	}
-	depg, err := g.Db.GetEndpointByName(policy.DestEPG)
+	depg, err := g.Db.GetEndpointGroup(policy.DestEPG)
 	if err != nil {
 		return fmt.Errorf("get epg from DB: %s", err)
 	}
@@ -267,11 +275,11 @@ func (g *PolicyServer) DeletePolicy(PolicyId string) error {
 	if err != nil {
 		return fmt.Errorf("get policy from db: %s", err)
 	}
-	sepg, err := g.Db.GetEndpointByName(policy.SourceEPG)
+	sepg, err := g.Db.GetEndpointGroup(policy.SourceEPG)
 	if err != nil {
 		return fmt.Errorf("get epg from Db: %s", err)
 	}
-	depg, err := g.Db.GetEndpointByName(policy.DestEPG)
+	depg, err := g.Db.GetEndpointGroup(policy.DestEPG)
 	if err != nil {
 		return fmt.Errorf("get epg from Db: %s", err)
 	}
@@ -332,6 +340,74 @@ func (g *PolicyServer) DeleteEndpoint(EpId string) error {
 	return nil
 }
 
+func (g *PolicyServer) HandleEndpointGroupList(r *http.Request) routeResponse {
+	groups, err := g.EndpointGroups()
+	if err != nil {
+		panic(err)
+	}
+	return routeResponse{body: groups}
+}
+
+func (g *PolicyServer) AddEndpointGroup(epg *models.EndpointGroup) error {
+	epg.Id = uuid.NewV4().String()
+	err := g.Db.AddEndpointGroup(*epg)
+	if err != nil {
+		return fmt.Errorf("add epg to Db: %s", err)
+	}
+	return nil
+}
+func (g *PolicyServer) HandleEndpointGroupPost(r *http.Request) routeResponse {
+	var epg models.EndpointGroup
+	if err := json.NewDecoder(r.Body).Decode(&epg); err != nil {
+		panic(err)
+	}
+	return routeResponse{body: epg}
+}
+
+func (g *PolicyServer) DeleteEndpointGroup(EpgId string) error {
+	//epg, err := g.Db.GetEndpointGroup(EpgId)
+	//if err != nil {
+	//	return fmt.Errorf("Delete epg from db: %s", err)
+	//}
+	//TODO : make sure epg is only deleted if references are nil
+	err := g.Db.DeleteEndpointGroup(EpgId)
+	if err != nil {
+		return fmt.Errorf("Delete epg from db:%s", err)
+	}
+	return nil
+}
+
+func (g *PolicyServer) HandleEndpointGroupDelete(r *http.Request) routeResponse {
+
+	EpgId := getRequestVar(r, "EpgId")
+	err := g.DeleteEndpointGroup(EpgId)
+	if err != nil {
+		panic(err)
+	}
+	return ok()
+}
+
+func (g *PolicyServer) GetEndpointGroup(EpgId string) (models.EndpointGroup, error) {
+	epg, err := g.Db.GetEndpointGroup(EpgId)
+	if err != nil {
+		return epg, fmt.Errorf("get epg from Db: %s", err)
+	}
+	return epg, nil
+}
+
+func (g *PolicyServer) HandleEndpointGroupGet(r *http.Request) routeResponse {
+	EpgId := getRequestVar(r, "EpgId")
+	epg, err := g.GetEndpointGroup(EpgId)
+	if err != nil {
+		panic(err)
+	}
+	return routeResponse{body: epg}
+}
+
+func (g *PolicyServer) HandleEndpointGroupPut(r *http.Request) routeResponse {
+	return notFound()
+}
+
 func (g *PolicyServer) Handler() http.Handler {
 	return g.HandleFunc
 }
@@ -360,7 +436,6 @@ func NewServer(dataplaneUri string, sqlUrl string) (*PolicyServer, error) {
 	pol.Methods("GET").Path("/{policyId}").HandlerFunc(makeHandler(g.handlePolicyGet))
 	pol.Methods("PUT").Path("/{policyId}").HandlerFunc(makeHandler(g.handlePolicyPut))
 	pol.Methods("DELETE").Path("/{policyId}").HandlerFunc(makeHandler(g.handlePolicyDelete))
-
 	end := rtr.PathPrefix("/endpoints").Subrouter()
 	end.Methods("POST").Path("/").HandlerFunc(makeHandler(g.handleEndpointPost))
 	end.Methods("GET").Path("/").HandlerFunc(makeHandler(g.handleEndpointList))
@@ -368,6 +443,12 @@ func NewServer(dataplaneUri string, sqlUrl string) (*PolicyServer, error) {
 	end.Methods("PUT").Path("/{endpointId}").HandlerFunc(makeHandler(g.handleEndpointPut))
 	end.Methods("DELETE").Path("/{endpointId}").HandlerFunc(makeHandler(g.handleEndpointDelete))
 
+	epg := rtr.PathPrefix("/epg").Subrouter()
+	epg.Methods("POST").Path("/").HandlerFunc(makeHandler(g.HandleEndpointGroupPost))
+	epg.Methods("GET").Path("/").HandlerFunc(makeHandler(g.HandleEndpointGroupList))
+	epg.Methods("GET").Path("/{EpgId}").HandlerFunc(makeHandler(g.HandleEndpointGroupGet))
+	epg.Methods("PUT").Path("/{EpgId}").HandlerFunc(makeHandler(g.HandleEndpointGroupPut))
+	epg.Methods("DELETE").Path("/{EpgId}").HandlerFunc(makeHandler(g.HandleEndpointGroupDelete))
 	// new routes go here
 
 	return g, nil

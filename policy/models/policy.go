@@ -34,3 +34,9 @@ type EndpointEntry struct {
 type InfoEntry struct {
 	Id string `json:"id"`
 }
+
+type EndpointGroup struct {
+	Id     string `json:"id"`
+	Epg    string `json:"epg"`
+	WireId string `json:"wire-id"`
+}

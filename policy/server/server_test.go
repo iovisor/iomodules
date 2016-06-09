@@ -131,26 +131,25 @@ var _ = Describe("Server", func() {
 
 	Describe("AddPolicy", func() {
 		var (
-			policy   models.Policy
-			endpoint models.EndpointEntry
+			policy models.Policy
+			epg    models.EndpointGroup
 		)
 		BeforeEach(func() {
 			policy = models.Policy{
 				Id:         "some-id",
-				SourceEPG:  "some-wire-id",
+				SourceEPG:  "some-id",
 				SourcePort: "source-port",
-				DestEPG:    "some-wire-id",
+				DestEPG:    "some-id",
 				DestPort:   "dest-port",
 				Protocol:   "protocol",
 				Action:     "action",
 			}
 
-			endpoint = models.EndpointEntry{
-				Ip:     "some-ip",
-				Epg:    "some-epg",
+			epg = models.EndpointGroup{
+				Id:     "some-id",
 				WireId: "some-wire-id",
 			}
-			db.GetEndpointByNameReturns(endpoint, nil)
+			db.GetEndpointGroupReturns(epg, nil)
 		})
 		It("add a policy", func() {
 			err := policyServer.AddPolicy(&policy)
@@ -158,9 +157,9 @@ var _ = Describe("Server", func() {
 
 			Expect(dataplane.AddPolicyCallCount()).To(Equal(1))
 			sepgId, sourcePort, depgId, destPort, protocol, action := dataplane.AddPolicyArgsForCall(0)
-			Expect(sepgId).To(Equal(policy.SourceEPG))
+			Expect(sepgId).To(Equal(epg.WireId))
 			Expect(sourcePort).To(Equal(policy.SourcePort))
-			Expect(depgId).To(Equal(policy.DestEPG))
+			Expect(depgId).To(Equal(epg.WireId))
 			Expect(destPort).To(Equal(policy.DestPort))
 			Expect(action).To(Equal(policy.Action))
 			Expect(protocol).To(Equal(policy.Protocol))
@@ -262,7 +261,7 @@ var _ = Describe("Server", func() {
 				Protocol:   "protocol",
 				Action:     "action",
 			}
-			db.GetEndpointByNameReturns(models.EndpointEntry{WireId: "some-wire-id", Id: "some-id", Ip: "some-ip", Epg: "some-epg"}, nil)
+			db.GetEndpointGroupReturns(models.EndpointGroup{WireId: "some-wire-id", Id: "some-id"}, nil)
 			db.GetPolicyReturns(policy, nil)
 		})
 		It("deletes a policy from the policy server", func() {
@@ -325,6 +324,99 @@ var _ = Describe("Server", func() {
 				p, err := policyServer.GetPolicy("some-policy-id")
 				Expect(err).To(MatchError("get policy from Db: some-potato"))
 				Expect(p).To(Equal(models.Policy{}))
+			})
+		})
+	})
+	Describe("Get an EndpointGroup", func() {
+		var epg models.EndpointGroup
+		BeforeEach(func() {
+			epg = models.EndpointGroup{
+				Id:     "some-id",
+				WireId: "some-wire-id",
+			}
+			db.GetEndpointGroupReturns(epg, nil)
+		})
+		It("gets an endpoint group from the server", func() {
+			g, err := policyServer.GetEndpointGroup("some-id")
+			Expect(db.GetEndpointGroupCallCount()).To(Equal(1))
+			Expect(db.GetEndpointGroupArgsForCall(0)).To(Equal("some-id"))
+			Expect(g).To(Equal(epg))
+			Expect(err).NotTo(HaveOccurred())
+		})
+		Context("when getting an endpoint group entry from the db fails", func() {
+			BeforeEach(func() {
+				db.GetEndpointGroupReturns(models.EndpointGroup{}, errors.New("some-potato"))
+			})
+			It("returns an error", func() {
+				g, err := policyServer.GetEndpointGroup("some-epg-id")
+				Expect(err).To(MatchError("get epg from Db: some-potato"))
+				Expect(g).To(Equal(models.EndpointGroup{}))
+			})
+		})
+	})
+	Describe("Delete an EndpointGroup", func() {
+		BeforeEach(func() {
+			db.GetEndpointGroupReturns(models.EndpointGroup{Id: "some-epg-id", WireId: "some-id"}, nil)
+		})
+		It("deletes an endpoint group from the dataplane", func() {
+			err := policyServer.DeleteEndpointGroup("some-epg-id")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(db.DeleteEndpointGroupCallCount()).To(Equal(1))
+			Expect(db.DeleteEndpointGroupArgsForCall(0)).To(Equal("some-epg-id"))
+		})
+	})
+	Describe("Add EndpointGroup", func() {
+		var (
+			epg models.EndpointGroup
+		)
+		BeforeEach(func() {
+			epg = models.EndpointGroup{
+				Id:     "some-id",
+				WireId: "some-wire-id",
+			}
+			db.GetEndpointGroupReturns(epg, nil)
+		})
+		It("adds an epg", func() {
+			err := policyServer.AddEndpointGroup(&epg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(db.AddEndpointGroupCallCount()).To(Equal(1))
+			dbEpg := db.AddEndpointGroupArgsForCall(0)
+			Expect(dbEpg.Id).NotTo(Equal(""))
+		})
+		Context("when adding the endpoint group to the database fails", func() {
+			BeforeEach(func() {
+				db.AddEndpointGroupReturns(errors.New("some-potato"))
+			})
+			It("returns error", func() {
+				err := policyServer.AddEndpointGroup(&epg)
+				Expect(err).To(MatchError("add epg to Db: some-potato"))
+			})
+		})
+	})
+	Describe("Endpoint groups", func() {
+		var dbepgs []models.EndpointGroup
+		BeforeEach(func() {
+			dbepgs = []models.EndpointGroup{
+				{
+					Id:     "some-id",
+					WireId: "some-wire-id",
+				},
+			}
+			db.EndpointGroupsReturns(dbepgs, nil)
+		})
+		It("Gets a list of endpoint groups from the database", func() {
+			epgs, err := policyServer.EndpointGroups()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(db.EndpointGroupsCallCount()).To(Equal(1))
+			Expect(epgs).To(Equal(dbepgs))
+		})
+		Context("when getting the endpoint groups from the db fails", func() {
+			BeforeEach(func() {
+				db.EndpointGroupsReturns(nil, errors.New("some-potato"))
+			})
+			It("returns an error", func() {
+				_, err := policyServer.EndpointGroups()
+				Expect(err).To(MatchError("get epgs from Db: some-potato"))
 			})
 		})
 	})

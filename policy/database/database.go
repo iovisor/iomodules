@@ -13,6 +13,7 @@ import (
 type Database interface {
 	Endpoints() ([]models.EndpointEntry, error)
 	Policies() ([]models.Policy, error)
+	EndpointGroups() ([]models.EndpointGroup, error)
 	AddEndpoint(models.EndpointEntry) error
 	AddPolicy(models.Policy) error
 	DeleteEndpoint(EpId string) error
@@ -20,6 +21,9 @@ type Database interface {
 	GetPolicy(PolicyId string) (models.Policy, error)
 	GetEndpoint(EndpointId string) (models.EndpointEntry, error)
 	GetEndpointByName(epg string) (models.EndpointEntry, error)
+	AddEndpointGroup(models.EndpointGroup) error
+	DeleteEndpointGroup(GroupId string) error
+	GetEndpointGroup(GroupId string) (models.EndpointGroup, error)
 }
 
 type database struct {
@@ -57,9 +61,73 @@ func Init(sqlUrl string) (Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create policies db : %s", err)
 	}
+
+	schema = `CREATE TABLE Epgs (
+		id text PRIMARY KEY,
+		epg text,
+		wireid text)`
+
+	_, err = sqlxDb.Exec(schema)
+	if err != nil {
+		return nil, fmt.Errorf("create endpoints db : %s", err)
+	}
 	return &database{
 		db: sqlxDb,
 	}, nil
+}
+
+func (dbPtr *database) AddEndpointGroup(epg models.EndpointGroup) error {
+	_, err := dbPtr.db.NamedExec(`
+	INSERT INTO Epgs (
+		id, epg, wireid
+	) VALUES (
+		:id, :epg, :wireid
+	)`, &epg)
+
+	if err != nil {
+		pqErr, ok := err.(*pq.Error)
+		if !ok {
+			return fmt.Errorf("insert: %s", err)
+		}
+		if pqErr.Code.Name() == "unique_violation" {
+			return fmt.Errorf("add epg: record exists")
+		}
+		return fmt.Errorf("add epg to db: %s", pqErr.Code.Name())
+	}
+	return nil
+}
+
+func (dbPtr *database) DeleteEndpointGroup(id string) error {
+	result, err := dbPtr.db.NamedExec("DELETE * FROM Epgs where epg=$id", id)
+	if err != nil {
+		return fmt.Errorf("database delete endoint group: %s", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("database delete endpoint group : %s", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("database delete endpoint group : record not found")
+	}
+	return nil
+}
+
+func (dbPtr *database) EndpointGroups() ([]models.EndpointGroup, error) {
+	epgs := []models.EndpointGroup{}
+	err := dbPtr.db.Select(&epgs, "SELECT * FROM Epgs")
+	if err != nil {
+		return nil, fmt.Errorf("database get epgs: %s", err)
+	}
+	return epgs, nil
+}
+
+func (dbPtr *database) Endpoints() ([]models.EndpointEntry, error) {
+	endpoints := []models.EndpointEntry{}
+	err := dbPtr.db.Select(&endpoints, "SELECT * FROM endpoints")
+	if err != nil {
+		return nil, fmt.Errorf("database get endpoints: %s", err)
+	}
+	return endpoints, nil
 }
 
 func (dbPtr *database) AddEndpoint(endpoint models.EndpointEntry) error {
@@ -82,14 +150,14 @@ func (dbPtr *database) AddEndpoint(endpoint models.EndpointEntry) error {
 	}
 	return nil
 }
+func (dbPtr *database) GetEndpointGroup(id string) (models.EndpointGroup, error) {
+	epg := models.EndpointGroup{}
 
-func (dbPtr *database) Endpoints() ([]models.EndpointEntry, error) {
-	endpoints := []models.EndpointEntry{}
-	err := dbPtr.db.Select(&endpoints, "SELECT * FROM endpoints")
+	err := dbPtr.db.Get(&epg, "SELECT * from Epgs WHERE id=$1", id)
 	if err != nil {
-		return nil, fmt.Errorf("database get endpoints: %s", err)
+		return epg, fmt.Errorf("database get endpoints: %s", err)
 	}
-	return endpoints, nil
+	return epg, nil
 }
 
 func (dbPtr *database) GetEndpointByName(epg string) (models.EndpointEntry, error) {
@@ -97,7 +165,7 @@ func (dbPtr *database) GetEndpointByName(epg string) (models.EndpointEntry, erro
 
 	err := dbPtr.db.Get(&endpoints, "SELECT * from Endpoints WHERE epg=$1", epg)
 	if err != nil {
-		fmt.Errorf("database get endpoints by name: %s", err)
+		return endpoints, fmt.Errorf("database get endpoints by name: %s", err)
 	}
 	return endpoints, nil
 }
@@ -108,7 +176,7 @@ func (dbPtr *database) GetEndpoint(id string) (models.EndpointEntry, error) {
 	err := dbPtr.db.Get(&endpoints, "SELECT * from Endpoints WHERE id=$1", id)
 
 	if err != nil {
-		fmt.Errorf("database get endpoints: %s", err)
+		return endpoints, fmt.Errorf("database get endpoints: %s", err)
 	}
 	return endpoints, nil
 }
@@ -116,7 +184,7 @@ func (dbPtr *database) GetEndpoint(id string) (models.EndpointEntry, error) {
 func (dbPtr *database) DeleteEndpoint(id string) error {
 	result, err := dbPtr.db.Exec("DELETE FROM Endpoints WHERE id=$1", id)
 	if err != nil {
-		fmt.Errorf("database delete endpoint: %s", err)
+		return fmt.Errorf("database delete endpoint: %s", err)
 	}
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
@@ -178,7 +246,7 @@ func (dbPtr *database) GetPolicy(id string) (models.Policy, error) {
 
 	err := dbPtr.db.Get(&policy, "SELECT * from Policies WHERE id=$1", id)
 	if err != nil {
-		fmt.Errorf("database get policy: %s", err)
+		return policy, fmt.Errorf("database get policy: %s", err)
 	}
 	return policy, nil
 }

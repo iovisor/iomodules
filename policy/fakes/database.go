@@ -24,6 +24,13 @@ type Database struct {
 		result1 []models.Policy
 		result2 error
 	}
+	EndpointGroupsStub        func() ([]models.EndpointGroup, error)
+	endpointGroupsMutex       sync.RWMutex
+	endpointGroupsArgsForCall []struct{}
+	endpointGroupsReturns     struct {
+		result1 []models.EndpointGroup
+		result2 error
+	}
 	AddEndpointStub        func(models.EndpointEntry) error
 	addEndpointMutex       sync.RWMutex
 	addEndpointArgsForCall []struct {
@@ -83,6 +90,31 @@ type Database struct {
 		result1 models.EndpointEntry
 		result2 error
 	}
+	AddEndpointGroupStub        func(models.EndpointGroup) error
+	addEndpointGroupMutex       sync.RWMutex
+	addEndpointGroupArgsForCall []struct {
+		arg1 models.EndpointGroup
+	}
+	addEndpointGroupReturns struct {
+		result1 error
+	}
+	DeleteEndpointGroupStub        func(GroupId string) error
+	deleteEndpointGroupMutex       sync.RWMutex
+	deleteEndpointGroupArgsForCall []struct {
+		GroupId string
+	}
+	deleteEndpointGroupReturns struct {
+		result1 error
+	}
+	GetEndpointGroupStub        func(GroupId string) (models.EndpointGroup, error)
+	getEndpointGroupMutex       sync.RWMutex
+	getEndpointGroupArgsForCall []struct {
+		GroupId string
+	}
+	getEndpointGroupReturns struct {
+		result1 models.EndpointGroup
+		result2 error
+	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
 }
@@ -135,6 +167,32 @@ func (fake *Database) PoliciesReturns(result1 []models.Policy, result2 error) {
 	fake.PoliciesStub = nil
 	fake.policiesReturns = struct {
 		result1 []models.Policy
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *Database) EndpointGroups() ([]models.EndpointGroup, error) {
+	fake.endpointGroupsMutex.Lock()
+	fake.endpointGroupsArgsForCall = append(fake.endpointGroupsArgsForCall, struct{}{})
+	fake.recordInvocation("EndpointGroups", []interface{}{})
+	fake.endpointGroupsMutex.Unlock()
+	if fake.EndpointGroupsStub != nil {
+		return fake.EndpointGroupsStub()
+	} else {
+		return fake.endpointGroupsReturns.result1, fake.endpointGroupsReturns.result2
+	}
+}
+
+func (fake *Database) EndpointGroupsCallCount() int {
+	fake.endpointGroupsMutex.RLock()
+	defer fake.endpointGroupsMutex.RUnlock()
+	return len(fake.endpointGroupsArgsForCall)
+}
+
+func (fake *Database) EndpointGroupsReturns(result1 []models.EndpointGroup, result2 error) {
+	fake.EndpointGroupsStub = nil
+	fake.endpointGroupsReturns = struct {
+		result1 []models.EndpointGroup
 		result2 error
 	}{result1, result2}
 }
@@ -373,6 +431,106 @@ func (fake *Database) GetEndpointByNameReturns(result1 models.EndpointEntry, res
 	}{result1, result2}
 }
 
+func (fake *Database) AddEndpointGroup(arg1 models.EndpointGroup) error {
+	fake.addEndpointGroupMutex.Lock()
+	fake.addEndpointGroupArgsForCall = append(fake.addEndpointGroupArgsForCall, struct {
+		arg1 models.EndpointGroup
+	}{arg1})
+	fake.recordInvocation("AddEndpointGroup", []interface{}{arg1})
+	fake.addEndpointGroupMutex.Unlock()
+	if fake.AddEndpointGroupStub != nil {
+		return fake.AddEndpointGroupStub(arg1)
+	} else {
+		return fake.addEndpointGroupReturns.result1
+	}
+}
+
+func (fake *Database) AddEndpointGroupCallCount() int {
+	fake.addEndpointGroupMutex.RLock()
+	defer fake.addEndpointGroupMutex.RUnlock()
+	return len(fake.addEndpointGroupArgsForCall)
+}
+
+func (fake *Database) AddEndpointGroupArgsForCall(i int) models.EndpointGroup {
+	fake.addEndpointGroupMutex.RLock()
+	defer fake.addEndpointGroupMutex.RUnlock()
+	return fake.addEndpointGroupArgsForCall[i].arg1
+}
+
+func (fake *Database) AddEndpointGroupReturns(result1 error) {
+	fake.AddEndpointGroupStub = nil
+	fake.addEndpointGroupReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *Database) DeleteEndpointGroup(GroupId string) error {
+	fake.deleteEndpointGroupMutex.Lock()
+	fake.deleteEndpointGroupArgsForCall = append(fake.deleteEndpointGroupArgsForCall, struct {
+		GroupId string
+	}{GroupId})
+	fake.recordInvocation("DeleteEndpointGroup", []interface{}{GroupId})
+	fake.deleteEndpointGroupMutex.Unlock()
+	if fake.DeleteEndpointGroupStub != nil {
+		return fake.DeleteEndpointGroupStub(GroupId)
+	} else {
+		return fake.deleteEndpointGroupReturns.result1
+	}
+}
+
+func (fake *Database) DeleteEndpointGroupCallCount() int {
+	fake.deleteEndpointGroupMutex.RLock()
+	defer fake.deleteEndpointGroupMutex.RUnlock()
+	return len(fake.deleteEndpointGroupArgsForCall)
+}
+
+func (fake *Database) DeleteEndpointGroupArgsForCall(i int) string {
+	fake.deleteEndpointGroupMutex.RLock()
+	defer fake.deleteEndpointGroupMutex.RUnlock()
+	return fake.deleteEndpointGroupArgsForCall[i].GroupId
+}
+
+func (fake *Database) DeleteEndpointGroupReturns(result1 error) {
+	fake.DeleteEndpointGroupStub = nil
+	fake.deleteEndpointGroupReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *Database) GetEndpointGroup(GroupId string) (models.EndpointGroup, error) {
+	fake.getEndpointGroupMutex.Lock()
+	fake.getEndpointGroupArgsForCall = append(fake.getEndpointGroupArgsForCall, struct {
+		GroupId string
+	}{GroupId})
+	fake.recordInvocation("GetEndpointGroup", []interface{}{GroupId})
+	fake.getEndpointGroupMutex.Unlock()
+	if fake.GetEndpointGroupStub != nil {
+		return fake.GetEndpointGroupStub(GroupId)
+	} else {
+		return fake.getEndpointGroupReturns.result1, fake.getEndpointGroupReturns.result2
+	}
+}
+
+func (fake *Database) GetEndpointGroupCallCount() int {
+	fake.getEndpointGroupMutex.RLock()
+	defer fake.getEndpointGroupMutex.RUnlock()
+	return len(fake.getEndpointGroupArgsForCall)
+}
+
+func (fake *Database) GetEndpointGroupArgsForCall(i int) string {
+	fake.getEndpointGroupMutex.RLock()
+	defer fake.getEndpointGroupMutex.RUnlock()
+	return fake.getEndpointGroupArgsForCall[i].GroupId
+}
+
+func (fake *Database) GetEndpointGroupReturns(result1 models.EndpointGroup, result2 error) {
+	fake.GetEndpointGroupStub = nil
+	fake.getEndpointGroupReturns = struct {
+		result1 models.EndpointGroup
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *Database) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
@@ -380,6 +538,8 @@ func (fake *Database) Invocations() map[string][][]interface{} {
 	defer fake.endpointsMutex.RUnlock()
 	fake.policiesMutex.RLock()
 	defer fake.policiesMutex.RUnlock()
+	fake.endpointGroupsMutex.RLock()
+	defer fake.endpointGroupsMutex.RUnlock()
 	fake.addEndpointMutex.RLock()
 	defer fake.addEndpointMutex.RUnlock()
 	fake.addPolicyMutex.RLock()
@@ -394,6 +554,12 @@ func (fake *Database) Invocations() map[string][][]interface{} {
 	defer fake.getEndpointMutex.RUnlock()
 	fake.getEndpointByNameMutex.RLock()
 	defer fake.getEndpointByNameMutex.RUnlock()
+	fake.addEndpointGroupMutex.RLock()
+	defer fake.addEndpointGroupMutex.RUnlock()
+	fake.deleteEndpointGroupMutex.RLock()
+	defer fake.deleteEndpointGroupMutex.RUnlock()
+	fake.getEndpointGroupMutex.RLock()
+	defer fake.getEndpointGroupMutex.RUnlock()
 	return fake.invocations
 }
 
