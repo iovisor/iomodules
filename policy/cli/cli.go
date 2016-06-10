@@ -27,6 +27,18 @@ func main() {
 						fmt.Println("new task template: ", c.Args().First())
 						return nil
 					},
+					Flags: []cli.Flag{
+						cli.StringFlag{
+							Name:  "endpoint-group-name",
+							Value: "",
+							Usage: "name identifying endpoint group",
+						},
+						cli.StringFlag{
+							Name:  "wire-id",
+							Value: "",
+							Usage: "identifier used on the wire",
+						},
+					},
 				},
 				{
 					Name:  "delete",
@@ -35,6 +47,13 @@ func main() {
 						fmt.Println("removed task template: ", c.Args().First())
 						return nil
 					},
+					Flags: []cli.Flag{
+						cli.StringFlag{
+							Name:  "endpoint-group-id",
+							Value: "",
+							Usage: "uuid of endpoint group",
+						},
+					},
 				},
 				{
 					Name:  "show",
@@ -42,6 +61,13 @@ func main() {
 					Action: func(c *cli.Context) error {
 						fmt.Println("removed task template: ", c.Args().First())
 						return nil
+					},
+					Flags: []cli.Flag{
+						cli.StringFlag{
+							Name:  "endpoint-group-id",
+							Value: "",
+							Usage: "uuid of endpoint group",
+						},
 					},
 				},
 				{
@@ -65,6 +91,18 @@ func main() {
 						fmt.Println("new task template: ", c.Args().First())
 						return nil
 					},
+					Flags: []cli.Flag{
+						cli.StringFlag{
+							Name:  "endpoint-group-id",
+							Value: "",
+							Usage: "uuid of endpoint group",
+						},
+						cli.StringFlag{
+							Name:  "ipaddress",
+							Value: "",
+							Usage: "ip address identifying endpoint",
+						},
+					},
 				},
 				{
 					Name:  "delete",
@@ -73,6 +111,13 @@ func main() {
 						fmt.Println("removed task template: ", c.Args().First())
 						return nil
 					},
+					Flags: []cli.Flag{
+						cli.StringFlag{
+							Name:  "endpoint-id",
+							Value: "",
+							Usage: "uuid of endpoint",
+						},
+					},
 				},
 				{
 					Name:  "show",
@@ -80,6 +125,13 @@ func main() {
 					Action: func(c *cli.Context) error {
 						fmt.Println("removed task template: ", c.Args().First())
 						return nil
+					},
+					Flags: []cli.Flag{
+						cli.StringFlag{
+							Name:  "endpoint-id",
+							Value: "",
+							Usage: "uuid of endpoint",
+						},
 					},
 				},
 				{
@@ -103,6 +155,38 @@ func main() {
 						fmt.Println("new task template: ", c.Args().First())
 						return nil
 					},
+					Flags: []cli.Flag{
+						cli.StringFlag{
+							Name:  "source-endpoint-group-id",
+							Value: "",
+							Usage: "uuid of source endpoint group",
+						},
+						cli.StringFlag{
+							Name:  "source-port",
+							Value: "0",
+							Usage: "source port",
+						},
+						cli.StringFlag{
+							Name:  "dest-endpoint-group-id",
+							Value: "",
+							Usage: "uuid of destination endpoint group",
+						},
+						cli.StringFlag{
+							Name:  "dest-port",
+							Value: "0",
+							Usage: "destination port",
+						},
+						cli.StringFlag{
+							Name:  "protocol",
+							Value: "17",
+							Usage: "l4 protocol",
+						},
+						cli.StringFlag{
+							Name:  "action",
+							Value: "allow",
+							Usage: "policy rule action",
+						},
+					},
 				},
 				{
 					Name:  "delete",
@@ -111,6 +195,13 @@ func main() {
 						fmt.Println("removed task template: ", c.Args().First())
 						return nil
 					},
+					Flags: []cli.Flag{
+						cli.StringFlag{
+							Name:  "policy-rule-id",
+							Value: "",
+							Usage: "uuid of policy rule",
+						},
+					},
 				},
 				{
 					Name:  "show",
@@ -118,6 +209,13 @@ func main() {
 					Action: func(c *cli.Context) error {
 						fmt.Println("removed task template: ", c.Args().First())
 						return nil
+					},
+					Flags: []cli.Flag{
+						cli.StringFlag{
+							Name:  "policy-rule-id",
+							Value: "",
+							Usage: "uuid of policy rule",
+						},
 					},
 				},
 				{
