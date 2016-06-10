@@ -365,6 +365,7 @@ func (g *PolicyServer) HandleEndpointGroupPost(r *http.Request) routeResponse {
 	if err := json.NewDecoder(r.Body).Decode(&epg); err != nil {
 		panic(err)
 	}
+	g.AddEndpointGroup(&epg)
 	return routeResponse{body: epg}
 }
 
