@@ -2,59 +2,64 @@ package client
 
 import (
 	"bytes"
-	"crypto/sha1"
-	"encoding/base32"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 
-	"github.com/appc/cni/pkg/skel"
-	"github.com/appc/cni/pkg/types"
+	"github.com/iovisor/iomodules/bridge/log"
+	"github.com/iovisor/iomodules/policy/models"
 )
 
-type PolicyClient struct {
+//go: generginkgo bootstrap # set up a new ginkgo suite
+type PolicyClient interface {
+	AddEndpoint(*models.EndpointEntry) error
+	DeleteEndpoint(endpointId string) error
+	GetEndpoint(endpointId string) (models.EndpointEntry, error)
+	Endpoints() ([]models.EndpointEntry, error)
+	AddPolicy(models.Policy) error
+	DeletePolicy(policyId string) error
+	GetPolicy(policyId string) (models.Policy, error)
+	Policies() ([]models.Policy, error)
+	AddEndpointGroup(models.EndpointGroup) error
+	DeleteEndpointGroup(epgId string) error
+	GetEndpointGroup(epgId string) (models.EndpointGroup, error)
+	EndpointGroups() ([]models.EndpointGroup, error)
+}
+
+type policyclient struct {
 	client  *http.Client
 	baseUrl string
-	//daemonClient *client.DaemonClient
 }
 
-func NewClient() *PolicyClient {
+func NewClient(baseUrl string) PolicyClient {
 	httpclient := &http.Client{}
-	//	daemonClient := client.New("http://127.0.0.1:4001", http.DefaultClient)
-	p := &PolicyClient{
+	return &policyclient{
 		client:  httpclient,
-		baseUrl: "http://127.0.0.1:5001",
-		//	daemonClient: nil,
+		baseUrl: baseUrl,
 	}
-	return p
 }
 
-func ContainertoIf(containerID string) string {
-	const maxLength = 15
-	hash := sha1.Sum([]byte(containerID))
-	return string(base32.StdEncoding.EncodeToString(hash[:])[:maxLength])
+func (p *policyclient) GetObject(url string, responseObj interface{}) (err error) {
+	resp, err := p.client.Get(p.baseUrl + url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		var body []byte
+		if body, err = ioutil.ReadAll(resp.Body); err != nil {
+			log.Error.Print(string(body))
+		}
+		return fmt.Errorf("module server returned %s", resp.Status)
+	}
+	if responseObj != nil {
+		err = json.NewDecoder(resp.Body).Decode(responseObj)
+	}
+	return nil
 }
 
-func (p *PolicyClient) CreateEndpoint(input *skel.CmdArgs) (types.Result, error) {
-
-	//container, err := p.daemonClient.GetContainer(input.ContainerID)
-	result := types.Result{}
-
-	//log.Info.Print("input container identifier is", container.IP, container.App)
-
-	//ifname := ContainertoIf(input.ContainerID)
-
-	//obj := &models.EndpointEntry{
-	//	Ip:  container.IP,
-	//	Epg: container.App,
-	//}
-
-	//err = p.PostObject("/endpoints/", obj, nil)
-	return result, nil
-}
-
-func (p *PolicyClient) PostObject(url string, requestObj interface{}, responseObj interface{}) (err error) {
+func (p *policyclient) PostObject(url string, requestObj interface{}, responseObj interface{}) (err error) {
 	b, err := json.Marshal(requestObj)
 	if err != nil {
 		return
@@ -67,12 +72,138 @@ func (p *PolicyClient) PostObject(url string, requestObj interface{}, responseOb
 	if resp.StatusCode != http.StatusOK {
 		var body []byte
 		if body, err = ioutil.ReadAll(resp.Body); err != nil {
-			Error.Print(string(body))
+			log.Error.Print(string(body))
 		}
 		return fmt.Errorf("module server returned %s", resp.Status)
 	}
 	if responseObj != nil {
 		err = json.NewDecoder(resp.Body).Decode(responseObj)
+		if err != nil {
+			return fmt.Errorf("module server returned %s", resp.Status)
+		}
 	}
-	return
+	return nil
+}
+
+func (p *policyclient) deleteObject(url string) error {
+	req, err := http.NewRequest("DELETE", p.baseUrl+url, nil)
+	if err != nil {
+		return fmt.Errorf("module server returned: %s", err)
+	}
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("module server returned: %s", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("module server returned: %s", resp.Status)
+	}
+	return nil
+}
+
+func (p *policyclient) AddEndpoint(endpoint *models.EndpointEntry) error {
+	err := p.PostObject("/endpoint/", endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("Add Endpoint to server %s", err)
+	}
+	return nil
+}
+
+func (p *policyclient) DeleteEndpoint(endpointId string) error {
+
+	err := p.deleteObject("/endpoint/" + endpointId)
+	if err != nil {
+		return fmt.Errorf("Delete endpoint from server %s", err)
+	}
+	return nil
+}
+
+func (p *policyclient) GetEndpoint(endpointId string) (models.EndpointEntry, error) {
+	var endpoint models.EndpointEntry
+
+	err := p.GetObject("/endpoint/"+endpointId, &endpoint)
+	if err != nil {
+		return endpoint, fmt.Errorf("Get Endpoint from server %s", err)
+	}
+	return endpoint, nil
+}
+
+func (p *policyclient) Endpoints() ([]models.EndpointEntry, error) {
+	var epList []models.EndpointEntry
+	err := p.GetObject("/endpoint/", &epList)
+	if err != nil {
+		return epList, fmt.Errorf("Get Endpoint from server %s", err)
+	}
+	return epList, nil
+
+}
+
+func (p *policyclient) AddPolicy(policy models.Policy) error {
+	err := p.PostObject("/policy/", policy, nil)
+	if err != nil {
+		return fmt.Errorf("Add policy to server %s", err)
+	}
+	return nil
+}
+
+func (p *policyclient) DeletePolicy(policyId string) error {
+	err := p.deleteObject("/policy/" + policyId)
+	if err != nil {
+		return fmt.Errorf("Delete endpoint from server %s", err)
+	}
+	return nil
+}
+
+func (p *policyclient) GetPolicy(policyId string) (models.Policy, error) {
+	var policy models.Policy
+
+	err := p.GetObject("/policy/"+policyId, &policy)
+	if err != nil {
+		return policy, fmt.Errorf("Get Endpoint from server %s", err)
+	}
+	return policy, nil
+}
+
+func (p *policyclient) Policies() ([]models.Policy, error) {
+	var policylist []models.Policy
+	err := p.GetObject("/policies/", &policylist)
+	if err != nil {
+		return policylist, fmt.Errorf("Get policies from server %s", err)
+	}
+	return policylist, nil
+}
+
+func (p *policyclient) AddEndpointGroup(epg models.EndpointGroup) error {
+	err := p.PostObject("/epg/", epg, nil)
+	if err != nil {
+		return fmt.Errorf("Add epg to server %s", err)
+	}
+	return nil
+
+}
+
+func (p *policyclient) DeleteEndpointGroup(epgId string) error {
+	err := p.deleteObject("/epg/" + epgId)
+	if err != nil {
+		return fmt.Errorf("Delete endpoint from server %s", err)
+	}
+	return nil
+}
+
+func (p *policyclient) GetEndpointGroup(epgId string) (models.EndpointGroup, error) {
+	var epg models.EndpointGroup
+	err := p.GetObject("/epg/"+epgId, &epg)
+	if err != nil {
+		return epg, fmt.Errorf("Get Endpoint from server %s", err)
+	}
+	return epg, nil
+}
+
+func (p *policyclient) EndpointGroups() ([]models.EndpointGroup, error) {
+	var epgList []models.EndpointGroup
+	err := p.GetObject("/epg/", &epgList)
+	if err != nil {
+		return epgList, fmt.Errorf("Get Endpoint from server %s", err)
+	}
+	return epgList, nil
 }
