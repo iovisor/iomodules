@@ -107,7 +107,7 @@ var _ = Describe("Client", func() {
 					ghttp.VerifyRequest("POST", "/policy/"),
 					ghttp.RespondWithJSONEncodedPtr(&statusCode, &policy),
 				))
-				err := p.AddPolicy(policy)
+				err := p.AddPolicy(&policy)
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})
@@ -179,7 +179,7 @@ var _ = Describe("Client", func() {
 					ghttp.VerifyRequest("POST", "/epg/"),
 					ghttp.RespondWithJSONEncodedPtr(&statusCode, &epg),
 				))
-				err := p.AddEndpointGroup(epg)
+				err := p.AddEndpointGroup(&epg)
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})

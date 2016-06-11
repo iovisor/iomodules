@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/iovisor/iomodules/policy/client"
+	"github.com/iovisor/iomodules/policy/models"
 	"github.com/urfave/cli"
 )
 
@@ -24,8 +26,15 @@ func main() {
 					Name:  "create",
 					Usage: "create an endpoint group",
 					Action: func(c *cli.Context) error {
-						fmt.Println("new task template: ", c.Args().First())
-						return nil
+						var epg models.EndpointGroup
+						epg = models.EndpointGroup{
+							Epg:    c.String("endpoint-group-name"),
+							WireId: c.String("wire-id"),
+						}
+						p := client.NewClient("http://localhost:5001")
+						err := p.AddEndpointGroup(&epg)
+						fmt.Println(epg)
+						return err
 					},
 					Flags: []cli.Flag{
 						cli.StringFlag{
@@ -44,7 +53,11 @@ func main() {
 					Name:  "delete",
 					Usage: "delete an endpoint group",
 					Action: func(c *cli.Context) error {
-						fmt.Println("removed task template: ", c.Args().First())
+						p := client.NewClient("http://localhost:5001")
+						err := p.DeleteEndpointGroup(c.String("endpoint-group-id"))
+						if err != nil {
+							fmt.Println(err)
+						}
 						return nil
 					},
 					Flags: []cli.Flag{
@@ -59,7 +72,12 @@ func main() {
 					Name:  "show",
 					Usage: "show an endpoint group",
 					Action: func(c *cli.Context) error {
-						fmt.Println("removed task template: ", c.Args().First())
+						p := client.NewClient("http://localhost:5001")
+						epg, err := p.GetEndpointGroup(c.String("endpoint-group-id"))
+						if err != nil {
+							fmt.Println(err)
+						}
+						fmt.Println(epg)
 						return nil
 					},
 					Flags: []cli.Flag{
@@ -74,7 +92,12 @@ func main() {
 					Name:  "list",
 					Usage: "list endpoint groups",
 					Action: func(c *cli.Context) error {
-						fmt.Println("removed task template: ", c.Args().First())
+						p := client.NewClient("http://localhost:5001")
+						epgs, err := p.EndpointGroups()
+						fmt.Println(epgs)
+						if err != nil {
+							fmt.Println(err)
+						}
 						return nil
 					},
 				},

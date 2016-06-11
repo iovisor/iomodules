@@ -3,6 +3,7 @@ package database
 import (
 	"fmt"
 
+	"github.com/iovisor/iomodules/policy/log"
 	"github.com/iovisor/iomodules/policy/models"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
@@ -40,8 +41,7 @@ func Init(sqlUrl string) (Database, error) {
 	schema := `CREATE TABLE Endpoints (
 		id text PRIMARY KEY,
 		ip text,
-		wireid text,
-		epg text SECONDARY KEY)`
+		epgid text SECONDARY KEY)`
 
 	_, err = sqlxDb.Exec(schema)
 	if err != nil {
@@ -98,7 +98,9 @@ func (dbPtr *database) AddEndpointGroup(epg models.EndpointGroup) error {
 }
 
 func (dbPtr *database) DeleteEndpointGroup(id string) error {
-	result, err := dbPtr.db.NamedExec("DELETE * FROM Epgs where epg=$id", id)
+
+	log.Info.Println("ID IS: ", id)
+	result, err := dbPtr.db.Exec("DELETE FROM Epgs where id=$1", id)
 	if err != nil {
 		return fmt.Errorf("database delete endoint group: %s", err)
 	}
@@ -133,9 +135,9 @@ func (dbPtr *database) Endpoints() ([]models.EndpointEntry, error) {
 func (dbPtr *database) AddEndpoint(endpoint models.EndpointEntry) error {
 	_, err := dbPtr.db.NamedExec(`
 	INSERT INTO Endpoints (
-		id, ip, epg, wireid
+		id, ip, epgid
 	) VALUES (
-		:id, :ip, :epg, :wireid
+		:id, :ip, :epgid
 	)`, &endpoint)
 
 	if err != nil {
@@ -152,7 +154,6 @@ func (dbPtr *database) AddEndpoint(endpoint models.EndpointEntry) error {
 }
 func (dbPtr *database) GetEndpointGroup(id string) (models.EndpointGroup, error) {
 	epg := models.EndpointGroup{}
-
 	err := dbPtr.db.Get(&epg, "SELECT * from Epgs WHERE id=$1", id)
 	if err != nil {
 		return epg, fmt.Errorf("database get endpoints: %s", err)
@@ -243,7 +244,6 @@ func (dbPtr *database) DeletePolicy(id string) error {
 
 func (dbPtr *database) GetPolicy(id string) (models.Policy, error) {
 	policy := models.Policy{}
-
 	err := dbPtr.db.Get(&policy, "SELECT * from Policies WHERE id=$1", id)
 	if err != nil {
 		return policy, fmt.Errorf("database get policy: %s", err)

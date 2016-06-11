@@ -7,7 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"github.com/iovisor/iomodules/bridge/log"
+	"github.com/iovisor/iomodules/policy/log"
 	"github.com/iovisor/iomodules/policy/models"
 )
 
@@ -17,11 +17,11 @@ type PolicyClient interface {
 	DeleteEndpoint(endpointId string) error
 	GetEndpoint(endpointId string) (models.EndpointEntry, error)
 	Endpoints() ([]models.EndpointEntry, error)
-	AddPolicy(models.Policy) error
+	AddPolicy(*models.Policy) error
 	DeletePolicy(policyId string) error
 	GetPolicy(policyId string) (models.Policy, error)
 	Policies() ([]models.Policy, error)
-	AddEndpointGroup(models.EndpointGroup) error
+	AddEndpointGroup(*models.EndpointGroup) error
 	DeleteEndpointGroup(epgId string) error
 	GetEndpointGroup(epgId string) (models.EndpointGroup, error)
 	EndpointGroups() ([]models.EndpointGroup, error)
@@ -138,7 +138,7 @@ func (p *policyclient) Endpoints() ([]models.EndpointEntry, error) {
 
 }
 
-func (p *policyclient) AddPolicy(policy models.Policy) error {
+func (p *policyclient) AddPolicy(policy *models.Policy) error {
 	err := p.PostObject("/policy/", policy, nil)
 	if err != nil {
 		return fmt.Errorf("Add policy to server %s", err)
@@ -173,11 +173,12 @@ func (p *policyclient) Policies() ([]models.Policy, error) {
 	return policylist, nil
 }
 
-func (p *policyclient) AddEndpointGroup(epg models.EndpointGroup) error {
+func (p *policyclient) AddEndpointGroup(epg *models.EndpointGroup) error {
 	err := p.PostObject("/epg/", epg, nil)
 	if err != nil {
 		return fmt.Errorf("Add epg to server %s", err)
 	}
+	fmt.Println(epg)
 	return nil
 
 }

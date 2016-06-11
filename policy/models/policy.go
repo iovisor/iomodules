@@ -27,7 +27,7 @@ type Policy struct {
 type EndpointEntry struct {
 	Id    string `json:"id"`
 	Ip    string `json:"ip"`
-	EpgId string `json:"epg"`
+	EpgId string `json:"epgid"`
 }
 
 type InfoEntry struct {
