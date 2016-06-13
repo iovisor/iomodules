@@ -317,7 +317,6 @@ func (d *Dataplane) AddEndpoint(ip, epg, wireid string) error {
 		Key:   ipKey,
 		Value: wireid,
 	}
-	log.Error.Println("endpoint is ", obj)
 	err = d.PostObject("/modules/"+d.id+"/tables/endpoints/entries/", obj, nil)
 	if err != nil {
 		return err

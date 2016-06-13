@@ -178,7 +178,6 @@ func (p *policyclient) AddEndpointGroup(epg *models.EndpointGroup) error {
 	if err != nil {
 		return fmt.Errorf("Add epg to server %s", err)
 	}
-	fmt.Println(epg)
 	return nil
 
 }
