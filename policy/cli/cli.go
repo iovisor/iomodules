@@ -34,8 +34,11 @@ func main() {
 						}
 						p := client.NewClient("http://localhost:5001")
 						err := p.AddEndpointGroup(&epg)
-						fmt.Println(epg)
-						return err
+						if err != nil {
+							return err
+						}
+						fmt.Printf("%+v\n", epg)
+						return nil
 					},
 					Flags: []cli.Flag{
 						cli.StringFlag{
@@ -78,7 +81,7 @@ func main() {
 						if err != nil {
 							fmt.Println(err)
 						}
-						fmt.Println(epg)
+						fmt.Printf("%+v\n", epg)
 						return nil
 					},
 					Flags: []cli.Flag{
@@ -95,9 +98,11 @@ func main() {
 					Action: func(c *cli.Context) error {
 						p := client.NewClient("http://localhost:5001")
 						epgs, err := p.EndpointGroups()
-						fmt.Println(epgs)
 						if err != nil {
 							fmt.Println(err)
+						}
+						for _, epg := range epgs {
+							fmt.Printf("%+v\n", epg)
 						}
 						return nil
 					},
@@ -118,6 +123,11 @@ func main() {
 							EpgId: c.String("endpoint-group-id"),
 						}
 						err := p.AddEndpoint(&ep)
+						if err != nil {
+							fmt.Println(err)
+							return err
+						}
+						fmt.Printf("%+v\n", ep)
 						return err
 					},
 					Flags: []cli.Flag{
@@ -162,7 +172,7 @@ func main() {
 						if err != nil {
 							fmt.Println(err)
 						}
-						fmt.Println(ep)
+						fmt.Printf("%+v\n", ep)
 						return nil
 					},
 					Flags: []cli.Flag{
@@ -179,10 +189,12 @@ func main() {
 					Action: func(c *cli.Context) error {
 						p := client.NewClient("http://localhost:5001")
 						eps, err := p.Endpoints()
-						fmt.Println(eps)
 						if err != nil {
 							fmt.Println(err)
 							return err
+						}
+						for _, e := range eps {
+							fmt.Printf("%+v\n", e)
 						}
 						return nil
 					},
@@ -211,6 +223,7 @@ func main() {
 							fmt.Println(err)
 							return err
 						}
+						fmt.Printf("%+v\n", policy)
 						return nil
 					},
 					Flags: []cli.Flag{
@@ -276,7 +289,7 @@ func main() {
 							fmt.Println(err)
 							return err
 						}
-						fmt.Println(policy)
+						fmt.Printf("%+v\n", policy)
 						return nil
 					},
 					Flags: []cli.Flag{
@@ -297,7 +310,9 @@ func main() {
 							fmt.Println(err)
 							return err
 						}
-						fmt.Println(policies)
+						for _, pl := range policies {
+							fmt.Printf("%+v\n", pl)
+						}
 						return nil
 					},
 				},
