@@ -33,7 +33,7 @@ var _ = Describe("Client", func() {
 				statusCode := http.StatusOK
 				Expect(p).NotTo(BeNil())
 				fakeserver.AppendHandlers(ghttp.CombineHandlers(
-					ghttp.VerifyRequest("POST", "/endpoint/"),
+					ghttp.VerifyRequest("POST", "/endpoints/"),
 					ghttp.RespondWithJSONEncodedPtr(&statusCode, &endpoint),
 				))
 				err := p.AddEndpoint(&endpoint)
@@ -45,7 +45,7 @@ var _ = Describe("Client", func() {
 				someId := "some-id"
 				statusCode := http.StatusOK
 				fakeserver.AppendHandlers(ghttp.CombineHandlers(
-					ghttp.VerifyRequest("DELETE", "/endpoint/"+someId),
+					ghttp.VerifyRequest("DELETE", "/endpoints/"+someId),
 					ghttp.RespondWith(statusCode, ""),
 				))
 				err := p.DeleteEndpoint(someId)
@@ -57,7 +57,7 @@ var _ = Describe("Client", func() {
 				someId := "some-id"
 				statusCode := http.StatusOK
 				fakeserver.AppendHandlers(ghttp.CombineHandlers(
-					ghttp.VerifyRequest("GET", "/endpoint/"+someId),
+					ghttp.VerifyRequest("GET", "/endpoints/"+someId),
 					ghttp.RespondWithJSONEncodedPtr(&statusCode, &endpoint),
 				))
 				ep, err := p.GetEndpoint(someId)
@@ -78,7 +78,7 @@ var _ = Describe("Client", func() {
 			It("Gets endpoint list from the server", func() {
 				statusCode := http.StatusOK
 				fakeserver.AppendHandlers(ghttp.CombineHandlers(
-					ghttp.VerifyRequest("GET", "/endpoint/"),
+					ghttp.VerifyRequest("GET", "/endpoints/"),
 					ghttp.RespondWithJSONEncodedPtr(&statusCode, &eplist),
 				))
 				epl, err := p.Endpoints()
@@ -104,7 +104,7 @@ var _ = Describe("Client", func() {
 				statusCode := http.StatusOK
 				Expect(p).NotTo(BeNil())
 				fakeserver.AppendHandlers(ghttp.CombineHandlers(
-					ghttp.VerifyRequest("POST", "/policy/"),
+					ghttp.VerifyRequest("POST", "/policies/"),
 					ghttp.RespondWithJSONEncodedPtr(&statusCode, &policy),
 				))
 				err := p.AddPolicy(&policy)
@@ -116,7 +116,7 @@ var _ = Describe("Client", func() {
 				someId := "some-id"
 				statusCode := http.StatusOK
 				fakeserver.AppendHandlers(ghttp.CombineHandlers(
-					ghttp.VerifyRequest("DELETE", "/policy/"+someId),
+					ghttp.VerifyRequest("DELETE", "/policies/"+someId),
 					ghttp.RespondWith(statusCode, ""),
 				))
 				err := p.DeletePolicy(someId)
@@ -128,7 +128,7 @@ var _ = Describe("Client", func() {
 				someId := "some-id"
 				statusCode := http.StatusOK
 				fakeserver.AppendHandlers(ghttp.CombineHandlers(
-					ghttp.VerifyRequest("GET", "/policy/"+someId),
+					ghttp.VerifyRequest("GET", "/policies/"+someId),
 					ghttp.RespondWithJSONEncodedPtr(&statusCode, &policy),
 				))
 				p, err := p.GetPolicy(someId)

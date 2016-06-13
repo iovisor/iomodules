@@ -21,7 +21,6 @@ type Database interface {
 	DeletePolicy(PolicyId string) error
 	GetPolicy(PolicyId string) (models.Policy, error)
 	GetEndpoint(EndpointId string) (models.EndpointEntry, error)
-	GetEndpointByName(epg string) (models.EndpointEntry, error)
 	AddEndpointGroup(models.EndpointGroup) error
 	DeleteEndpointGroup(GroupId string) error
 	GetEndpointGroup(GroupId string) (models.EndpointGroup, error)
@@ -159,16 +158,6 @@ func (dbPtr *database) GetEndpointGroup(id string) (models.EndpointGroup, error)
 		return epg, fmt.Errorf("database get endpoints: %s", err)
 	}
 	return epg, nil
-}
-
-func (dbPtr *database) GetEndpointByName(epg string) (models.EndpointEntry, error) {
-	endpoints := models.EndpointEntry{}
-
-	err := dbPtr.db.Get(&endpoints, "SELECT * from Endpoints WHERE epg=$1", epg)
-	if err != nil {
-		return endpoints, fmt.Errorf("database get endpoints by name: %s", err)
-	}
-	return endpoints, nil
 }
 
 func (dbPtr *database) GetEndpoint(id string) (models.EndpointEntry, error) {

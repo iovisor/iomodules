@@ -102,7 +102,7 @@ func (p *policyclient) deleteObject(url string) error {
 }
 
 func (p *policyclient) AddEndpoint(endpoint *models.EndpointEntry) error {
-	err := p.PostObject("/endpoint/", endpoint, nil)
+	err := p.PostObject("/endpoints/", endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("Add Endpoint to server %s", err)
 	}
@@ -111,7 +111,7 @@ func (p *policyclient) AddEndpoint(endpoint *models.EndpointEntry) error {
 
 func (p *policyclient) DeleteEndpoint(endpointId string) error {
 
-	err := p.deleteObject("/endpoint/" + endpointId)
+	err := p.deleteObject("/endpoints/" + endpointId)
 	if err != nil {
 		return fmt.Errorf("Delete endpoint from server %s", err)
 	}
@@ -121,7 +121,7 @@ func (p *policyclient) DeleteEndpoint(endpointId string) error {
 func (p *policyclient) GetEndpoint(endpointId string) (models.EndpointEntry, error) {
 	var endpoint models.EndpointEntry
 
-	err := p.GetObject("/endpoint/"+endpointId, &endpoint)
+	err := p.GetObject("/endpoints/"+endpointId, &endpoint)
 	if err != nil {
 		return endpoint, fmt.Errorf("Get Endpoint from server %s", err)
 	}
@@ -130,7 +130,7 @@ func (p *policyclient) GetEndpoint(endpointId string) (models.EndpointEntry, err
 
 func (p *policyclient) Endpoints() ([]models.EndpointEntry, error) {
 	var epList []models.EndpointEntry
-	err := p.GetObject("/endpoint/", &epList)
+	err := p.GetObject("/endpoints/", &epList)
 	if err != nil {
 		return epList, fmt.Errorf("Get Endpoint from server %s", err)
 	}
@@ -139,7 +139,7 @@ func (p *policyclient) Endpoints() ([]models.EndpointEntry, error) {
 }
 
 func (p *policyclient) AddPolicy(policy *models.Policy) error {
-	err := p.PostObject("/policy/", policy, nil)
+	err := p.PostObject("/policies/", policy, nil)
 	if err != nil {
 		return fmt.Errorf("Add policy to server %s", err)
 	}
@@ -147,7 +147,7 @@ func (p *policyclient) AddPolicy(policy *models.Policy) error {
 }
 
 func (p *policyclient) DeletePolicy(policyId string) error {
-	err := p.deleteObject("/policy/" + policyId)
+	err := p.deleteObject("/policies/" + policyId)
 	if err != nil {
 		return fmt.Errorf("Delete endpoint from server %s", err)
 	}
@@ -157,7 +157,7 @@ func (p *policyclient) DeletePolicy(policyId string) error {
 func (p *policyclient) GetPolicy(policyId string) (models.Policy, error) {
 	var policy models.Policy
 
-	err := p.GetObject("/policy/"+policyId, &policy)
+	err := p.GetObject("/policies/"+policyId, &policy)
 	if err != nil {
 		return policy, fmt.Errorf("Get Endpoint from server %s", err)
 	}

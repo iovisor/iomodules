@@ -17,10 +17,10 @@ var _ = Describe("Database", func() {
 	})
 	Describe("Endpoints", func() {
 		var endpoint = models.EndpointEntry{
-			Id:     "some-uuid",
-			Ip:     "some-ip",
-			Epg:    "some-epg",
-			WireId: "some-wire-id"}
+			Id:    "some-uuid",
+			Ip:    "some-ip",
+			EpgId: "some-epg",
+		}
 		BeforeEach(func() {
 			err := db.AddEndpoint(endpoint)
 			Expect(err).NotTo(HaveOccurred())
@@ -122,27 +122,6 @@ var _ = Describe("Database", func() {
 			e, err := db.GetEndpoint("some-uuid1")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(e).To(Equal(models.EndpointEntry{Id: "some-uuid1"}))
-		})
-	})
-	Describe("Get Endpoint by name", func() {
-		BeforeEach(func() {
-			endpoints := []models.EndpointEntry{
-				{Id: "some-uuid1",
-					Epg: "db"},
-				{Id: "some-uuid2",
-					Epg: "app"},
-				{Id: "some-uuid3",
-					Epg: "web"},
-			}
-			for _, e := range endpoints {
-				Expect(db.AddEndpoint(e)).To(Succeed())
-			}
-		})
-		It("Gets an endpoint entry from the database", func() {
-			e, err := db.GetEndpointByName("app")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(e).To(Equal(models.EndpointEntry{Id: "some-uuid2", Epg: "app"}))
-
 		})
 	})
 	Describe("EndpointGroups", func() {

@@ -12,6 +12,7 @@ import (
 func main() {
 	app := cli.NewApp()
 	app.Name = "policy-cli"
+	app.EnableBashCompletion = true
 	app.Usage = "cli to configure policy iomodule"
 	app.Action = func(c *cli.Context) error {
 		fmt.Println("IOVisor -- CLI to configure policy iomodule")
@@ -111,8 +112,13 @@ func main() {
 					Name:  "create",
 					Usage: "create an endpoint",
 					Action: func(c *cli.Context) error {
-						fmt.Println("new task template: ", c.Args().First())
-						return nil
+						p := client.NewClient("http://localhost:5001")
+						ep := models.EndpointEntry{
+							Ip:    c.String("ipaddress"),
+							EpgId: c.String("endpoint-group-id"),
+						}
+						err := p.AddEndpoint(&ep)
+						return err
 					},
 					Flags: []cli.Flag{
 						cli.StringFlag{
@@ -132,6 +138,11 @@ func main() {
 					Usage: "delete an endpoint",
 					Action: func(c *cli.Context) error {
 						fmt.Println("removed task template: ", c.Args().First())
+						p := client.NewClient("http://localhost:5001")
+						err := p.DeleteEndpoint(c.String("endpoint-id"))
+						if err != nil {
+							fmt.Println(err)
+						}
 						return nil
 					},
 					Flags: []cli.Flag{
@@ -146,7 +157,12 @@ func main() {
 					Name:  "show",
 					Usage: "show an endpoint",
 					Action: func(c *cli.Context) error {
-						fmt.Println("removed task template: ", c.Args().First())
+						p := client.NewClient("http://localhost:5001")
+						ep, err := p.GetEndpoint(c.String("endpoint-id"))
+						if err != nil {
+							fmt.Println(err)
+						}
+						fmt.Println(ep)
 						return nil
 					},
 					Flags: []cli.Flag{
@@ -161,7 +177,13 @@ func main() {
 					Name:  "list",
 					Usage: "list endpoints",
 					Action: func(c *cli.Context) error {
-						fmt.Println("removed task template: ", c.Args().First())
+						p := client.NewClient("http://localhost:5001")
+						eps, err := p.Endpoints()
+						fmt.Println(eps)
+						if err != nil {
+							fmt.Println(err)
+							return err
+						}
 						return nil
 					},
 				},
@@ -175,7 +197,20 @@ func main() {
 					Name:  "create",
 					Usage: "create a policy rule",
 					Action: func(c *cli.Context) error {
-						fmt.Println("new task template: ", c.Args().First())
+						policy := models.Policy{
+							SourceEPG:  c.String("source-endpoint-group-id"),
+							SourcePort: c.String("source-port"),
+							DestEPG:    c.String("dest-endpoint-group-id"),
+							DestPort:   c.String("dest-port"),
+							Protocol:   c.String("protocol"),
+							Action:     c.String("action"),
+						}
+						p := client.NewClient("http://localhost:5001")
+						err := p.AddPolicy(&policy)
+						if err != nil {
+							fmt.Println(err)
+							return err
+						}
 						return nil
 					},
 					Flags: []cli.Flag{
@@ -215,7 +250,12 @@ func main() {
 					Name:  "delete",
 					Usage: "delete a policy rule",
 					Action: func(c *cli.Context) error {
-						fmt.Println("removed task template: ", c.Args().First())
+						p := client.NewClient("http://localhost:5001")
+						err := p.DeletePolicy(c.String("policy-rule-id"))
+						if err != nil {
+							fmt.Println(err)
+							return err
+						}
 						return nil
 					},
 					Flags: []cli.Flag{
@@ -230,7 +270,13 @@ func main() {
 					Name:  "show",
 					Usage: "show a policy rule",
 					Action: func(c *cli.Context) error {
-						fmt.Println("removed task template: ", c.Args().First())
+						p := client.NewClient("http://localhost:5001")
+						policy, err := p.GetPolicy(c.String("policy-rule-id"))
+						if err != nil {
+							fmt.Println(err)
+							return err
+						}
+						fmt.Println(policy)
 						return nil
 					},
 					Flags: []cli.Flag{
@@ -245,7 +291,13 @@ func main() {
 					Name:  "list",
 					Usage: "list policy rule",
 					Action: func(c *cli.Context) error {
-						fmt.Println("removed task template: ", c.Args().First())
+						p := client.NewClient("http://localhost:5001")
+						policies, err := p.Policies()
+						if err != nil {
+							fmt.Println(err)
+							return err
+						}
+						fmt.Println(policies)
 						return nil
 					},
 				},
