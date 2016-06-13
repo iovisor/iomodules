@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/hokaccha/go-prettyjson"
 	"github.com/iovisor/iomodules/policy/client"
 	"github.com/iovisor/iomodules/policy/models"
 	"github.com/urfave/cli"
@@ -37,7 +38,8 @@ func main() {
 						if err != nil {
 							return err
 						}
-						fmt.Printf("%+v\n", epg)
+						s, _ := prettyjson.Marshal(epg)
+						fmt.Printf("%+v\n", string(s))
 						return nil
 					},
 					Flags: []cli.Flag{
@@ -81,7 +83,8 @@ func main() {
 						if err != nil {
 							fmt.Println(err)
 						}
-						fmt.Printf("%+v\n", epg)
+						s, _ := prettyjson.Marshal(epg)
+						fmt.Printf("%+v\n", string(s))
 						return nil
 					},
 					Flags: []cli.Flag{
@@ -102,7 +105,8 @@ func main() {
 							fmt.Println(err)
 						}
 						for _, epg := range epgs {
-							fmt.Printf("%+v\n", epg)
+							s, _ := prettyjson.Marshal(epg)
+							fmt.Printf("%+v\n", string(s))
 						}
 						return nil
 					},
@@ -127,7 +131,8 @@ func main() {
 							fmt.Println(err)
 							return err
 						}
-						fmt.Printf("%+v\n", ep)
+						s, _ := prettyjson.Marshal(ep)
+						fmt.Printf("%+v\n", string(s))
 						return err
 					},
 					Flags: []cli.Flag{
@@ -172,7 +177,8 @@ func main() {
 						if err != nil {
 							fmt.Println(err)
 						}
-						fmt.Printf("%+v\n", ep)
+						s, _ := prettyjson.Marshal(ep)
+						fmt.Printf("%+v\n", string(s))
 						return nil
 					},
 					Flags: []cli.Flag{
@@ -194,7 +200,8 @@ func main() {
 							return err
 						}
 						for _, e := range eps {
-							fmt.Printf("%+v\n", e)
+							s, _ := prettyjson.Marshal(e)
+							fmt.Printf("%+v\n", string(s))
 						}
 						return nil
 					},
@@ -223,7 +230,8 @@ func main() {
 							fmt.Println(err)
 							return err
 						}
-						fmt.Printf("%+v\n", policy)
+						s, _ := prettyjson.Marshal(policy)
+						fmt.Printf("%+v\n", string(s))
 						return nil
 					},
 					Flags: []cli.Flag{
@@ -289,7 +297,8 @@ func main() {
 							fmt.Println(err)
 							return err
 						}
-						fmt.Printf("%+v\n", policy)
+						s, _ := prettyjson.Marshal(policy)
+						fmt.Printf("%+v\n", string(s))
 						return nil
 					},
 					Flags: []cli.Flag{
@@ -311,7 +320,8 @@ func main() {
 							return err
 						}
 						for _, pl := range policies {
-							fmt.Printf("%+v\n", pl)
+							s, _ := prettyjson.Marshal(pl)
+							fmt.Printf("%+v\n", string(s))
 						}
 						return nil
 					},
