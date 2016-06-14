@@ -185,7 +185,7 @@ DONE:
 	mac = ethernet->src;
 	mac = (mac & 0xffffffffff00ULL) | (src_tag & 0x00ff);
 	ethernet->src = mac;
-	//bpf_trace_printk("DONE : tag: %d, %d, %llx\n", src_tag, ret, mac);
+	bpf_trace_printk("DONE : tag: %d, %d, %llx\n", src_tag, ret, mac);
 	return ret;
 }
 
@@ -279,6 +279,7 @@ func (d *Dataplane) Init(baseUrl string) error {
 			"code": filterImplC,
 		},
 		//"tags": []string{"b:" + modstr, "i:vxlan2050642"},
+		"tags": []string{"b:" + "br0"},
 	}
 	var module models.ModuleEntry
 	err := d.PostObject("/modules/", req, &module)
