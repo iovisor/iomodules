@@ -121,10 +121,17 @@ func main() {
 					Name:  "create",
 					Usage: "create an endpoint",
 					Action: func(c *cli.Context) error {
+						var id string
 						p := client.NewClient("http://localhost:5001")
+						epgs, _ := p.EndpointGroups()
+						for _, epg := range epgs {
+							if epg.Epg == c.String("endpoint-group-name") {
+								id = epg.Id
+							}
+						}
 						ep := models.EndpointEntry{
 							Ip:    c.String("ipaddress"),
-							EpgId: c.String("endpoint-group-id"),
+							EpgId: id,
 						}
 						err := p.AddEndpoint(&ep)
 						if err != nil {
@@ -137,9 +144,9 @@ func main() {
 					},
 					Flags: []cli.Flag{
 						cli.StringFlag{
-							Name:  "endpoint-group-id",
+							Name:  "endpoint-group-name",
 							Value: "",
-							Usage: "uuid of endpoint group",
+							Usage: "name of endpoint group",
 						},
 						cli.StringFlag{
 							Name:  "ipaddress",
@@ -216,15 +223,25 @@ func main() {
 					Name:  "create",
 					Usage: "create a policy rule",
 					Action: func(c *cli.Context) error {
+						var destid, srcid string
+						p := client.NewClient("http://localhost:5001")
+						epgs, _ := p.EndpointGroups()
+						for _, epg := range epgs {
+							if epg.Epg == c.String("dest-endpoint-group") {
+								destid = epg.Id
+							}
+							if epg.Epg == c.String("source-endpoint-group") {
+								srcid = epg.Id
+							}
+						}
 						policy := models.Policy{
-							SourceEPG:  c.String("source-endpoint-group-id"),
+							SourceEPG:  srcid,
 							SourcePort: c.String("source-port"),
-							DestEPG:    c.String("dest-endpoint-group-id"),
+							DestEPG:    destid,
 							DestPort:   c.String("dest-port"),
 							Protocol:   c.String("protocol"),
 							Action:     c.String("action"),
 						}
-						p := client.NewClient("http://localhost:5001")
 						err := p.AddPolicy(&policy)
 						if err != nil {
 							fmt.Println(err)
@@ -236,9 +253,9 @@ func main() {
 					},
 					Flags: []cli.Flag{
 						cli.StringFlag{
-							Name:  "source-endpoint-group-id",
+							Name:  "source-endpoint-group",
 							Value: "",
-							Usage: "uuid of source endpoint group",
+							Usage: "name of source endpoint group",
 						},
 						cli.StringFlag{
 							Name:  "source-port",
@@ -246,9 +263,9 @@ func main() {
 							Usage: "source port",
 						},
 						cli.StringFlag{
-							Name:  "dest-endpoint-group-id",
+							Name:  "dest-endpoint-group",
 							Value: "",
-							Usage: "uuid of destination endpoint group",
+							Usage: "name of destination endpoint group",
 						},
 						cli.StringFlag{
 							Name:  "dest-port",
