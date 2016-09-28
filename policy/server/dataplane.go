@@ -256,7 +256,7 @@ static int handle_ingress(void *skb, struct metadata *md) {
                    return RX_OK;
 		}
 		src_tag = *tag;
-		//bpf_trace_printk("sip 0x%x dip 0x%x STAG %d\n", src_ip, ip->dst, src_tag);
+		bpf_trace_printk("sip 0x%x dip 0x%x STAG %d\n", src_ip, ip->dst, src_tag);
 		goto DONE;
 	}
 	ip6: {
