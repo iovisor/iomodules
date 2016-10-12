@@ -79,6 +79,23 @@ static int handle_rx(void *pkt, struct metadata *md) {
 	return RX_OK;
 }
 `
+
+	moduleRedirectC = `
+static int handle_rx(void *skb, struct metadata *md) {
+	if (md->in_ifc == 1){
+		bpf_trace_printk("pkt: 1 -> 2\n");
+		pkt_redirect(skb,md,2);
+		return RX_REDIRECT;
+	}
+	if (md->in_ifc == 2){
+		bpf_trace_printk("pkt: 2 -> 1\n");
+		pkt_redirect(skb,md,1);
+		return RX_REDIRECT;
+	}
+	bpf_trace_printk("pkt: in_ifc %d -> DROP\n",md->in_ifc);
+	return RX_DROP;
+}
+`
 )
 
 // wrapCode creates a reader object to encapsulate a program in json
@@ -197,6 +214,53 @@ func TestModuleRedirect(t *testing.T) {
 
 	testOne(t, testCase{
 		url:    srv.URL + "/links/" + l1,
+		method: "DELETE",
+	}, nil)
+}
+
+//Create simple forwarding module
+//connect the module to 2 ns (ns1,ns2)
+//POST link1 ns1,module
+//POST linl2 ns2,module
+//DELETE link1
+//DELETE link2
+func TestLinkDelete(t *testing.T) {
+	srv, cleanup := testSetup(t)
+	defer cleanup()
+
+	// ns1 <-> ModuleRedirect <-> ns2
+	links, nets, cleanup2 := testNetnsPair(t, "ns")
+	defer cleanup2()
+
+	var t1 api.Module
+	testOne(t, testCase{
+		url:  srv.URL + "/modules/",
+		body: wrapCode(t, moduleRedirectC, []string{}),
+	}, &t1)
+
+	Info.Printf("module id = %s\n", t1.Id)
+	l1 := testLinkModules(t, srv, t1.Id, "i:"+links[0].Name)
+	l2 := testLinkModules(t, srv, t1.Id, "i:"+links[1].Name)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go hover.RunInNs(nets[0], func() error {
+		defer wg.Done()
+		out, err := exec.Command("ping", "-c", "1", "10.10.1.2").Output()
+		if err != nil {
+			t.Error(string(out), err)
+		}
+		return nil
+	})
+	wg.Wait()
+
+	testOne(t, testCase{
+		url:    srv.URL + "/links/" + l1,
+		method: "DELETE",
+	}, nil)
+
+	testOne(t, testCase{
+		url:    srv.URL + "/links/" + l2,
 		method: "DELETE",
 	}, nil)
 }
