@@ -17,11 +17,12 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/gorilla/mux"
 	"net/http"
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/gorilla/mux"
 
 	"github.com/gonum/graph"
 	"github.com/gonum/graph/traverse"
@@ -482,9 +483,11 @@ func (s *HoverServer) lookupNode(nodePath string) canvas.Node {
 }
 
 type linkEntry struct {
-	Id   string `json:"id"`
-	From string `json:"from"`
-	To   string `json:"to"`
+	Id     string `json:"id"`
+	From   string `json:"from"`
+	To     string `json:"to"`
+	FromId int    `json:"from-id"`
+	ToId   int    `json:"to-id"`
 }
 
 func (s *HoverServer) handleLinkList(r *http.Request) routeResponse {
@@ -492,9 +495,11 @@ func (s *HoverServer) handleLinkList(r *http.Request) routeResponse {
 	visitFn := func(u, v graph.Node) {
 		e := s.g.Edge(u, v).(canvas.Edge)
 		edges = append(edges, linkEntry{
-			Id:   e.ID(),
-			From: e.From().(canvas.Node).Path(),
-			To:   e.To().(canvas.Node).Path(),
+			Id:     e.ID(),
+			From:   e.From().(canvas.Node).Path(),
+			To:     e.To().(canvas.Node).Path(),
+			FromId: e.F().Ifc(),
+			ToId:   e.T().Ifc(),
 		})
 	}
 	t := &traverse.BreadthFirst{Visit: visitFn}
@@ -531,9 +536,11 @@ func (s *HoverServer) handleLinkPost(r *http.Request) routeResponse {
 
 	s.recomputePolicies()
 	return routeResponse{body: linkEntry{
-		Id:   e1.ID(),
-		From: e1.From().(canvas.Node).Path(),
-		To:   e1.To().(canvas.Node).Path(),
+		Id:     e1.ID(),
+		From:   e1.From().(canvas.Node).Path(),
+		To:     e1.To().(canvas.Node).Path(),
+		FromId: e1.F().Ifc(),
+		ToId:   e1.T().Ifc(),
 	}}
 }
 
@@ -572,9 +579,11 @@ func (s *HoverServer) handleLinkGet(r *http.Request) routeResponse {
 		return notFound()
 	}
 	return routeResponse{body: linkEntry{
-		Id:   e.ID(),
-		From: e.From().(canvas.Node).Path(),
-		To:   e.To().(canvas.Node).Path(),
+		Id:     e.ID(),
+		From:   e.From().(canvas.Node).Path(),
+		To:     e.To().(canvas.Node).Path(),
+		FromId: e.F().Ifc(),
+		ToId:   e.T().Ifc(),
 	}}
 }
 func (s *HoverServer) handleLinkPut(r *http.Request) routeResponse {
