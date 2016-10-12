@@ -265,6 +265,129 @@ func TestLinkDelete(t *testing.T) {
 	}, nil)
 }
 
+//ns11 eth0 10.10.1.1/24
+//ns12 eth0 10.10.1.2/24
+//ns21 eth0 10.10.1.1/24
+//ns22 eth0 10.10.1.2/24
+
+//POST Module1
+//Create ns11, ns12
+//connect Module1 to ns11 ns12
+//POST link1 ns11<->Module1
+//POST linl2 ns12<->Module1
+//test ping between ns11<->ns12
+//DELETE link1
+
+//POST Module2
+//Create ns21, ns22
+//POST link3 ns11<->Module2
+//POST link4 ns22<->Module2
+//Now ns11 and ns22 should be able to ping each other accordind to their configuration
+//test ping between ns11<->ns22
+//DELETE link3
+//DELETE link4
+func TestLinkInterfaceToOtherModule(t *testing.T) {
+	srv, cleanup := testSetup(t)
+	defer cleanup()
+
+	//Create ns11, ns12
+	Info.Printf("create ns11 eth0 10.10.1.1/24\n")
+	Info.Printf("create ns12 eth0 10.10.1.2/24\n")
+	links, nets, cleanup2 := testNetnsPair(t, "ns1")
+	defer cleanup2()
+
+	//POST Module1
+	Info.Printf("/modules/ POST ModuleRedirect\n")
+	var t1 api.Module
+	testOne(t, testCase{
+		url:  srv.URL + "/modules/",
+		body: wrapCode(t, moduleRedirectC, []string{}),
+	}, &t1)
+	Info.Printf("module id = %s\n", t1.Id)
+
+	//connect Module1 to ns11 ns12
+	//POST link1 ns11<->Module1
+	l1 := testLinkModules(t, srv, t1.Id, "i:"+links[0].Name)
+	Info.Printf("/links/ POST from:%s to:%s --> id:%s  OK\n", t1.Id, "i:"+links[0].Name, l1)
+	//POST linl2 ns12<->Module1
+	l2 := testLinkModules(t, srv, t1.Id, "i:"+links[1].Name)
+	Info.Printf("/links/ POST from:%s to:%s --> id:%s  OK\n", t1.Id, "i:"+links[1].Name, l2)
+
+	//test ping between ns11<->ns12
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go hover.RunInNs(nets[0], func() error {
+		defer wg.Done()
+		//TODO add ping output
+		out, err := exec.Command("ping", "-c", "1", "10.10.1.2").Output()
+		if err != nil {
+			t.Error(string(out), err)
+		}
+		return nil
+	})
+	wg.Wait()
+
+	//DELETE link1
+	testOne(t, testCase{
+		url:    srv.URL + "/links/" + l1,
+		method: "DELETE",
+	}, nil)
+	Info.Printf("/links/ DELETE link-id:%s  OK\n", l1)
+
+	//END FIRST PART
+
+	//Create ns21, ns22
+	Info.Printf("create ns21 eth0 10.10.1.1/24\n")
+	Info.Printf("create ns22 eth0 10.10.1.2/24\n")
+	links_, nets_, cleanup2_ := testNetnsPair(t, "ns2")
+	defer cleanup2_()
+
+	//POST Module2
+	Info.Printf("/modules/ POST ModuleRedirect\n")
+	var t1_ api.Module
+	testOne(t, testCase{
+		url:  srv.URL + "/modules/",
+		body: wrapCode(t, moduleRedirectC, []string{}),
+	}, &t1_)
+	Info.Printf("module id = %s\n", t1_.Id)
+
+	//POST link3 ns11<->Module2
+	l3 := testLinkModules(t, srv, t1_.Id, "i:"+links[0].Name)
+	Info.Printf("/links/ POST from:%s to:%s --> id:%s  OK\n", t1_.Id, "i:"+links[0].Name, l3)
+	//POST link4 ns22<->Module2
+	l4 := testLinkModules(t, srv, t1_.Id, "i:"+links_[1].Name)
+	Info.Printf("/links/ POST from:%s to:%s --> id:%s  OK\n", t1_.Id, "i:"+links_[1].Name, l4)
+
+	//Now ns11 and ns22 should be able to ping each other accordind to their configuration
+	//test ping between ns11<->ns22
+	var wg_ sync.WaitGroup
+	wg_.Add(1)
+	go hover.RunInNs(nets_[0], func() error {
+		defer wg_.Done()
+		//TODO add ping output
+		out_, err_ := exec.Command("ping", "-c", "1", "10.10.1.2").Output()
+		if err_ != nil {
+			t.Error(string(out_), err_)
+		}
+		return nil
+	})
+	wg_.Wait()
+
+	//DELETE link3
+	testOne(t, testCase{
+		url:    srv.URL + "/links/" + l3,
+		method: "DELETE",
+	}, nil)
+	Info.Printf("/links/ DELETE link-id:%s  OK\n", l3)
+
+	//DELETE link4
+	testOne(t, testCase{
+		url:    srv.URL + "/links/" + l4,
+		method: "DELETE",
+	}, nil)
+	Info.Printf("/links/ DELETE link-id:%s  OK\n", l4)
+}
+
 type policyEntry struct {
 	Id     string `json:"id"`
 	Module string `json:"module"`
