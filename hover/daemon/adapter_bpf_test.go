@@ -79,7 +79,6 @@ static int handle_rx(void *pkt, struct metadata *md) {
 	return RX_OK;
 }
 `
-
 	moduleRedirectC = `
 static int handle_rx(void *skb, struct metadata *md) {
 	if (md->in_ifc == 1){
@@ -391,6 +390,133 @@ func TestLinkInterfaceToOtherModule(t *testing.T) {
 type policyEntry struct {
 	Id     string `json:"id"`
 	Module string `json:"module"`
+}
+
+//I want to re-connect the same ports (ns1, ns2) to the same module
+//after a previous disconnect
+//Create simple forwarding module
+//connect the module to 2 ns (ns1,ns2)
+//POST link1 ns1,module
+//POST linl2 ns2,module
+//DELETE link1
+//DELETE link2
+//POST link1 ns1,module
+//POST linl2 ns2,module
+func TestReconnectToSameModule(t *testing.T) {
+	srv, cleanup := testSetup(t)
+	defer cleanup()
+
+	// ns1 <-> ModuleRedirect <-> ns2
+	links, nets, cleanup2 := testNetnsPair(t, "ns")
+	defer cleanup2()
+
+	var t1 api.Module
+	testOne(t, testCase{
+		url:  srv.URL + "/modules/",
+		body: wrapCode(t, moduleRedirectC, []string{}),
+	}, &t1)
+
+	Info.Printf("module id = %s\n", t1.Id)
+	l1 := testLinkModules(t, srv, t1.Id, "i:"+links[0].Name)
+	l2 := testLinkModules(t, srv, t1.Id, "i:"+links[1].Name)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go hover.RunInNs(nets[0], func() error {
+		defer wg.Done()
+		out, err := exec.Command("ping", "-c", "1", "10.10.1.2").Output()
+		if err != nil {
+			t.Error(string(out), err)
+		}
+		return nil
+	})
+	wg.Wait()
+
+	testOne(t, testCase{
+		url:    srv.URL + "/links/" + l1,
+		method: "DELETE",
+	}, nil)
+
+	testOne(t, testCase{
+		url:    srv.URL + "/links/" + l2,
+		method: "DELETE",
+	}, nil)
+
+	testLinkModules(t, srv, t1.Id, "i:"+links[0].Name)
+	testLinkModules(t, srv, t1.Id, "i:"+links[1].Name)
+}
+
+//I want to connect the same ports (ns1, ns2) to Module2
+//after a previous disconnect from Module1
+//POST Module1
+//POST link1 ns1,module1
+//POST linl2 ns2,module1
+//DELETE link1
+//DELETE link2
+//POST Module2
+//POST link3 ns1,module2
+//POST linl4 ns2,module2
+func TestReconnectToDifferentModule(t *testing.T) {
+	srv, cleanup := testSetup(t)
+	defer cleanup()
+
+	links, nets, cleanup2 := testNetnsPair(t, "ns")
+	defer cleanup2()
+
+	var t1 api.Module
+	testOne(t, testCase{
+		url:  srv.URL + "/modules/",
+		body: wrapCode(t, moduleRedirectC, []string{}),
+	}, &t1)
+
+	Info.Printf("module id = %s\n", t1.Id)
+	l1 := testLinkModules(t, srv, t1.Id, "i:"+links[0].Name)
+	l2 := testLinkModules(t, srv, t1.Id, "i:"+links[1].Name)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go hover.RunInNs(nets[0], func() error {
+		defer wg.Done()
+		out, err := exec.Command("ping", "-c", "1", "10.10.1.2").Output()
+		if err != nil {
+			t.Error(string(out), err)
+		}
+		return nil
+	})
+	wg.Wait()
+
+	testOne(t, testCase{
+		url:    srv.URL + "/links/" + l1,
+		method: "DELETE",
+	}, nil)
+
+	testOne(t, testCase{
+		url:    srv.URL + "/links/" + l2,
+		method: "DELETE",
+	}, nil)
+
+	//POST Module2
+	var t1_ api.Module
+	testOne(t, testCase{
+		url:  srv.URL + "/modules/",
+		body: wrapCode(t, moduleRedirectC, []string{}),
+	}, &t1_)
+
+	Info.Printf("module id = %s\n", t1.Id)
+	testLinkModules(t, srv, t1_.Id, "i:"+links[0].Name)
+	testLinkModules(t, srv, t1_.Id, "i:"+links[1].Name)
+
+	var wg_ sync.WaitGroup
+	wg_.Add(1)
+	go hover.RunInNs(nets[0], func() error {
+		defer wg_.Done()
+		out_, err_ := exec.Command("ping", "-c", "1", "10.10.1.2").Output()
+		if err_ != nil {
+			t.Error(string(out_), err_)
+		}
+		return nil
+	})
+	wg_.Wait()
 }
 
 func TestModulePolicy(t *testing.T) {
