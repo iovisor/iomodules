@@ -60,12 +60,13 @@ static int handle_egress(void *skb, struct metadata *md) {
     vxlan: {
        struct vxlan_gbp_t *vxlan = cursor_advance(cursor, sizeof(*vxlan));
        int md_id = bpf_get_smp_processor_id();
-	   int *tag = meta1.lookup(&md_id);
-       if (tag) {
-          goto EOP;
-	   }
+       int *tag = meta1.lookup(&md_id);
+       if (!tag) {
+          bpf_trace_printk("Tag value is null");
+          return RX_OK;
+       }
        vxlan->tag = *tag;
-	}
+    }
     EOP :
     return RX_OK;
 }
@@ -110,9 +111,9 @@ static int handle_ingress(void *skb, struct metadata *md) {
 }
 
 static int handle_rx(void *skb, struct metadata *md) {
-	if (md->in_ifc == 2)
+	if (md->in_ifc == 1)
 		return handle_egress(skb, md);
-	else if (md->in_ifc == 1)
+	else if (md->in_ifc == 2)
 		return handle_ingress(skb, md);
 	return RX_OK;
 }
@@ -149,6 +150,7 @@ static int handle_egress(void *skb, struct metadata *md) {
 			case ETH_P_IP: goto ip;
 			case ETH_P_IPV6: goto ip6;
 			case ETH_P_ARP: goto arp;
+		    default: goto DONE;
 		}
 	}
     ip: {
@@ -159,6 +161,7 @@ static int handle_egress(void *skb, struct metadata *md) {
 		if (!tag)
 			goto DONE;
 		dst_tag = *tag;
+		bpf_trace_printk("handle egress\n");
 		bpf_trace_printk("dip 0x%x STAG %d DTAG %d\n", ip->dst, src_tag, dst_tag);
 		goto EOP;
 	}
@@ -182,7 +185,6 @@ static int handle_egress(void *skb, struct metadata *md) {
 		goto EOP;
 	}
 	arp: {
-
         struct arp_t *arp = cursor_advance(cursor, sizeof(*arp));
 		bpf_trace_printk("ARP %x\n", arp->spa);
 		return RX_OK;
@@ -225,6 +227,7 @@ static int handle_egress(void *skb, struct metadata *md) {
 	 }
    }
 DONE:
+    bpf_trace_printk("EOP ret is %d", ret);
     return ret;
 }
 
@@ -234,7 +237,7 @@ static int handle_ingress(void *skb, struct metadata *md) {
 	int ret = RX_OK;
 	u64 mac = 0;
 	struct ethernet_t *ethernet;
-        //bpf_trace_printk("handle_ingress\n");
+    bpf_trace_printk("handle_ingress\n");
 
 	ethernet: {
 		ethernet = cursor_advance(cursor, sizeof(*ethernet));
@@ -252,11 +255,10 @@ static int handle_ingress(void *skb, struct metadata *md) {
 
 		u32 *tag = endpoints.lookup(&src_ip);
 		if (!tag) {
-		   //bpf_trace_printk("sip 0x%x dip 0x%x STAG %d\n", src_ip, ip->dst, 0);
-                   return RX_OK;
+		   bpf_trace_printk("oops sip 0x%x dip 0x%x STAG %d\n", src_ip, ip->dst, 0);
+           return RX_OK;
 		}
 		src_tag = *tag;
-		bpf_trace_printk("sip 0x%x dip 0x%x STAG %d\n", src_ip, ip->dst, src_tag);
 		goto DONE;
 	}
 	ip6: {
@@ -268,6 +270,7 @@ static int handle_ingress(void *skb, struct metadata *md) {
 DONE: {
      int md_id = 0;
      md_id = bpf_get_smp_processor_id();
+     bpf_trace_printk("Adding metadata to table %d %d", md_id, src_tag);
      meta1.update(&md_id, &src_tag);
      return ret;
    }

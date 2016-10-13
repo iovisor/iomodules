@@ -77,3 +77,21 @@ sleep 5
 
 sudo ip netns exec host1 $GOPATH/bin/policy -dataplane http://localhost:5000 &
 sudo ip netns exec host2 $GOPATH/bin/policy -dataplane http://localhost:5000 &
+
+sleep 5
+
+sudo ip netns exec host1 $GOPATH/bin/policy-ctl endpoint-group create --endpoint-group-name web --wire-id 100
+sudo ip netns exec host1 $GOPATH/bin/policy-ctl endpoint-group create --endpoint-group-name app --wire-id 200
+sudo ip netns exec host1 $GOPATH/bin/policy-ctl endpoint create --endpoint-group-name web --ipaddress 10.1.1.1
+sudo ip netns exec host1 $GOPATH/bin/policy-ctl endpoint create --endpoint-group-name app --ipaddress 10.1.1.2
+
+sudo ip netns exec host2 $GOPATH/bin/policy-ctl endpoint-group create --endpoint-group-name web --wire-id 100
+sudo ip netns exec host2 $GOPATH/bin/policy-ctl endpoint-group create --endpoint-group-name app --wire-id 200
+sudo ip netns exec host2 $GOPATH/bin/policy-ctl endpoint create --endpoint-group-name web --ipaddress 10.1.1.1
+sudo ip netns exec host2 $GOPATH/bin/policy-ctl endpoint create --endpoint-group-name app --ipaddress 10.1.1.2
+
+sudo ip netns exec host1 $GOPATH/bin/policy-ctl policy-rule create --source-endpoint-group web --dest-endpoint-group app --protocol 1
+sudo ip netns exec host1 $GOPATH/bin/policy-ctl policy-rule create --source-endpoint-group app --dest-endpoint-group web --protocol 1
+
+sudo ip netns exec host2 $GOPATH/bin/policy-ctl policy-rule create --source-endpoint-group web --dest-endpoint-group app --protocol 1
+sudo ip netns exec host2 $GOPATH/bin/policy-ctl policy-rule create --source-endpoint-group app --dest-endpoint-group web --protocol 1
