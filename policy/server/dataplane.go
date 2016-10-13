@@ -227,7 +227,6 @@ static int handle_egress(void *skb, struct metadata *md) {
 	 }
    }
 DONE:
-    bpf_trace_printk("EOP ret is %d", ret);
     return ret;
 }
 
@@ -237,7 +236,6 @@ static int handle_ingress(void *skb, struct metadata *md) {
 	int ret = RX_OK;
 	u64 mac = 0;
 	struct ethernet_t *ethernet;
-    bpf_trace_printk("handle_ingress\n");
 
 	ethernet: {
 		ethernet = cursor_advance(cursor, sizeof(*ethernet));
@@ -255,7 +253,6 @@ static int handle_ingress(void *skb, struct metadata *md) {
 
 		u32 *tag = endpoints.lookup(&src_ip);
 		if (!tag) {
-		   bpf_trace_printk("oops sip 0x%x dip 0x%x STAG %d\n", src_ip, ip->dst, 0);
            return RX_OK;
 		}
 		src_tag = *tag;
@@ -270,7 +267,6 @@ static int handle_ingress(void *skb, struct metadata *md) {
 DONE: {
      int md_id = 0;
      md_id = bpf_get_smp_processor_id();
-     bpf_trace_printk("Adding metadata to table %d %d", md_id, src_tag);
      meta1.update(&md_id, &src_tag);
      return ret;
    }
