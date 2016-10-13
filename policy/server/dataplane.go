@@ -27,10 +27,103 @@ import (
 	"github.com/iovisor/iomodules/policy/models"
 )
 
+var encapImplC string = `
+#include <uapi/linux/if_ether.h>
+
+BPF_TABLE("extern", int, int, meta1, NUMCPUS);
+
+static int handle_egress(void *skb, struct metadata *md) {
+	u8 *cursor = 0;
+	int ret = RX_DROP;
+	ethernet: {
+		struct ethernet_t *ethernet = cursor_advance(cursor, sizeof(*ethernet));
+		u16 ethertype = ethernet->type;
+		switch (ethertype) {
+			case ETH_P_IP: goto ip;
+			default: goto EOP;
+		}
+	}
+	ip: {
+		struct ip_t *ip = cursor_advance(cursor, sizeof(*ip));
+		switch (ip->nextp) {
+		 case 17: goto udp;
+	     default: goto EOP;
+		}
+	}
+	udp: {
+		struct udp_t *udp = cursor_advance(cursor, sizeof(*udp));
+		switch (udp->dport) {
+		  case 4789: goto vxlan;
+	      default: goto EOP;
+	    }
+	}
+    vxlan: {
+       struct vxlan_gbp_t *vxlan = cursor_advance(cursor, sizeof(*vxlan));
+       int md_id = bpf_get_smp_processor_id();
+       int *tag = meta1.lookup(&md_id);
+       if (!tag) {
+          bpf_trace_printk("Tag value is null");
+          return RX_OK;
+       }
+       vxlan->tag = *tag;
+    }
+    EOP :
+    return RX_OK;
+}
+
+static int handle_ingress(void *skb, struct metadata *md) {
+
+	u8 *cursor = 0;
+	int ret = RX_DROP;
+
+    ethernet : {
+        struct ethernet_t *ethernet = cursor_advance(cursor, sizeof(*ethernet));
+        u16 ethertype = ethernet->type;
+        switch (ethertype) {
+            case ETH_P_IP : goto ip;
+		    default: goto EOP;
+		}
+	}
+    ip: {
+       struct ip_t *ip = cursor_advance(cursor, sizeof(*ip));
+	   switch (ip->nextp) {
+          case 17: goto udp;
+	      default: goto EOP;
+	   }
+	}
+	udp: {
+       struct udp_t *udp = cursor_advance(cursor, sizeof(*udp));
+	   switch (udp->dport) {
+         case 4789: goto vxlan;
+		 default: goto EOP;
+	   }
+	}
+	vxlan: {
+      struct vxlan_gbp_t *vxlan = cursor_advance(cursor, sizeof(*vxlan));
+	  int md_id = bpf_get_smp_processor_id();
+	  int tag = vxlan->tag;
+	  meta1.update(&md_id, &tag);
+	  vxlan->tag = 0;
+      goto EOP;
+    }
+    EOP:
+	   return RX_OK;
+}
+
+static int handle_rx(void *skb, struct metadata *md) {
+	if (md->in_ifc == 1)
+		return handle_egress(skb, md);
+	else if (md->in_ifc == 2)
+		return handle_ingress(skb, md);
+	return RX_OK;
+}
+`
+
 var filterImplC string = `
 
 #include <uapi/linux/if_ether.h>
 
+BPF_TABLE_PUBLIC("array", int, int, meta1, NUMCPUS);
 BPF_TABLE("hash", u32, u32, endpoints, 1024);
 
 struct match {
@@ -50,91 +143,89 @@ static int handle_egress(void *skb, struct metadata *md) {
 	int ret = RX_DROP;
 	u32 dst_tag = 0, src_tag = 0;
 
-	//bpf_trace_printk("handle_egress\n");
-
 	ethernet: {
 		struct ethernet_t *ethernet = cursor_advance(cursor, sizeof(*ethernet));
 		u16 ethertype = ethernet->type;
-		src_tag = ethernet->src & 0xff;
 		switch (ethertype) {
 			case ETH_P_IP: goto ip;
 			case ETH_P_IPV6: goto ip6;
 			case ETH_P_ARP: goto arp;
-			default: goto DONE;
+		    default: goto DONE;
 		}
 	}
-
-	ip: {
+    ip: {
 		struct ip_t *ip = cursor_advance(cursor, sizeof(*ip));
 		u32 dst_ip = ip->dst;
 		m.proto = ip->nextp;
 		u32 *tag = endpoints.lookup(&dst_ip);
-
 		if (!tag)
 			goto DONE;
 		dst_tag = *tag;
+		bpf_trace_printk("handle egress\n");
 		bpf_trace_printk("dip 0x%x STAG %d DTAG %d\n", ip->dst, src_tag, dst_tag);
 		goto EOP;
 	}
-
 	ip6: {
 		goto DONE;
 	}
-
 	icmp: {
 		struct icmp_t *icmp = cursor_advance(cursor, sizeof(*icmp));
 		goto EOP;
 	}
-
 	tcp: {
 		struct tcp_t *tcp = cursor_advance(cursor, sizeof(*tcp));
 		m.dport = tcp->dst_port;
 		m.sport = tcp->src_port;
 		goto EOP;
 	}
-
 	udp: {
 		struct udp_t *udp = cursor_advance(cursor, sizeof(*udp));
 		m.dport = udp->dport;
 		m.sport = udp->sport;
 		goto EOP;
 	}
-
 	arp: {
-		//bpf_trace_printk("ARP\n");
+        struct arp_t *arp = cursor_advance(cursor, sizeof(*arp));
+		bpf_trace_printk("ARP %x\n", arp->spa);
 		return RX_OK;
 	}
-
-EOP: ;
-	int *result;
-	struct match m1 = {src_tag, dst_tag, m.sport, m.dport, m.proto};
-	result = rules.lookup(&m1);
-	if (result) {
+	EOP: {
+  	  int *result;
+      int md_id = bpf_get_smp_processor_id();
+      int *tag = meta1.lookup(&md_id);
+      if (!tag) {
+        goto DONE;
+	  }
+	  src_tag = *tag;
+	  struct match m1 = {src_tag, dst_tag, m.sport, m.dport, m.proto};
+	  result = rules.lookup(&m1);
+	  if (result) {
+		 ret = *result;
+		 bpf_trace_printk("m %d %d = %d\n", src_tag, dst_tag, ret);
+		 goto DONE;
+	  }
+	  struct match m2 = {src_tag, dst_tag, 0, m.dport, m.proto};
+	  result = rules.lookup(&m2);
+	  if (result) {
+		 ret = *result;
+		 bpf_trace_printk("m %d %d = %d\n", src_tag, dst_tag, ret);
+		 goto DONE;
+	  }
+	  struct match m3 = {src_tag, dst_tag, m.sport, 0, m.proto};
+	  result = rules.lookup(&m3);
+	  if (result) {
 		ret = *result;
 		bpf_trace_printk("m %d %d = %d\n", src_tag, dst_tag, ret);
 		goto DONE;
-	}
-	struct match m2 = {src_tag, dst_tag, 0, m.dport, m.proto};
-	result = rules.lookup(&m2);
-	if (result) {
-		ret = *result;
-		bpf_trace_printk("m %d %d = %d\n", src_tag, dst_tag, ret);
-		goto DONE;
-	}
-	struct match m3 = {src_tag, dst_tag, m.sport, 0, m.proto};
-	result = rules.lookup(&m3);
-	if (result) {
-		ret = *result;
-		bpf_trace_printk("m %d %d = %d\n", src_tag, dst_tag, ret);
-		goto DONE;
-	}
-	struct match m4 = {src_tag, dst_tag, 0, 0, m.proto};
-	result = rules.lookup(&m4);
-	if (result) {
-		ret = *result;
-		bpf_trace_printk("m %d %d = %d\n", dst_tag, src_tag, ret);
-		goto DONE;
-	}
+	  }
+	  struct match m4 = {src_tag, dst_tag, 0, 0, m.proto};
+	  result = rules.lookup(&m4);
+	  if (result) {
+		 ret = *result;
+		 bpf_trace_printk("m %d %d = %d\n", dst_tag, src_tag, ret);
+		 goto DONE;
+	 }
+   }
 DONE:
     return ret;
 }
@@ -146,8 +237,6 @@ static int handle_ingress(void *skb, struct metadata *md) {
 	u64 mac = 0;
 	struct ethernet_t *ethernet;
 
-        //bpf_trace_printk("handle_ingress\n");
-
 	ethernet: {
 		ethernet = cursor_advance(cursor, sizeof(*ethernet));
 		u16 ethertype = ethernet->type;
@@ -158,35 +247,29 @@ static int handle_ingress(void *skb, struct metadata *md) {
 			default: return RX_OK;
 		}
 	}
-
 	ip: {
 		struct ip_t *ip = cursor_advance(cursor, sizeof(*ip));
 		u32 src_ip = ip->src;
 
 		u32 *tag = endpoints.lookup(&src_ip);
 		if (!tag) {
-		   //bpf_trace_printk("sip 0x%x dip 0x%x STAG %d\n", src_ip, ip->dst, 0);
-                   return RX_OK;
+           return RX_OK;
 		}
 		src_tag = *tag;
-		//bpf_trace_printk("sip 0x%x dip 0x%x STAG %d\n", src_ip, ip->dst, src_tag);
 		goto DONE;
 	}
-
 	ip6: {
 		return RX_OK;
 	}
-
 	arp: {
 		return RX_OK;
 	}
-
-DONE:
-	mac = ethernet->src;
-	mac = (mac & 0xffffffffff00ULL) | (src_tag & 0x00ff);
-	ethernet->src = mac;
-	bpf_trace_printk("DONE : tag: %d, %d, %llx\n", src_tag, ret, mac);
-	return ret;
+DONE: {
+     int md_id = 0;
+     md_id = bpf_get_smp_processor_id();
+     meta1.update(&md_id, &src_tag);
+     return ret;
+   }
 }
 
 static int handle_rx(void *skb, struct metadata *md) {
@@ -278,8 +361,8 @@ func (d *Dataplane) Init(baseUrl string) error {
 		"config": map[string]interface{}{
 			"code": filterImplC,
 		},
-		//"tags": []string{"b:" + modstr, "i:vxlan2050642"},
-		"tags": []string{"b:" + "br0"},
+		"tags": []string{"b:" + "br0", "i:vxlan1"},
+		//"tags": []string{"b:" + "br0"},
 	}
 	var module models.ModuleEntry
 	err := d.PostObject("/modules/", req, &module)
@@ -287,6 +370,20 @@ func (d *Dataplane) Init(baseUrl string) error {
 		return err
 	}
 	d.id = module.Id
+
+	// add the encap module as well
+	req = map[string]interface{}{
+		"module_type":  "bpf/policy",
+		"display_name": "encap",
+		"config": map[string]interface{}{
+			"code": encapImplC,
+		},
+		"tags": []string{"i:" + "eth0"},
+	}
+	err = d.PostObject("/modules/", req, &module)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

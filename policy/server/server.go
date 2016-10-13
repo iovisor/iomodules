@@ -360,6 +360,7 @@ func (g *PolicyServer) AddEndpointGroup(epg *models.EndpointGroup) error {
 	}
 	return nil
 }
+
 func (g *PolicyServer) HandleEndpointGroupPost(r *http.Request) routeResponse {
 	var epg models.EndpointGroup
 	if err := json.NewDecoder(r.Body).Decode(&epg); err != nil {
