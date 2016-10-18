@@ -151,6 +151,30 @@ func (h *Renderer) Run(g canvas.Graph, nodes []InterfaceNode) {
 		for _, t := range g.From(this) {
 			e := g.E(this, t)
 			adapter := this.(*canvas.AdapterNode).Adapter()
+			if e.IsDeleted() {
+				fc := adapter.Table("forward_chain")
+				if fc == nil {
+					panic(fmt.Errorf("Could not find forward_chain in adapter"))
+				}
+
+				// find and delete the reverse edge as well
+				e2 := g.E(t, this)
+				if !e2.IsDeleted() {
+					panic(fmt.Errorf("Reverse edge %d->%d is not deleted", t.ID(), this.ID()))
+				}
+
+				// clear previous entry (if any) in the ifc table
+				key := fmt.Sprintf("%d", e.F().Ifc())
+				if err := fc.Set(key, "{ [ 0x0 0x0 0x0 0x0 ] }"); err != nil {
+					panic(err)
+				}
+
+				g.RemoveEdge(e)
+				g.RemoveEdge(e2)
+
+				// do not perform any further processing on node 't'
+				continue
+			}
 			target := t.(canvas.Node)
 			if adapter.Type() == "bridge" {
 				if target, ok := target.(*ExtInterface); ok {
@@ -180,9 +204,6 @@ func (h *Renderer) Run(g canvas.Graph, nodes []InterfaceNode) {
 				}
 				//Debug.Printf(" %s:%d -> %s:%d\n", this.Path(), i, target.Path(), target.ID())
 			}
-			if e.IsDeleted() {
-				g.RemoveEdge(e)
-			}
 		}
 	}
 	t := canvas.NewDepthFirst(visitFn, filterInterfaceNode)
@@ -194,4 +215,24 @@ func (h *Renderer) Run(g canvas.Graph, nodes []InterfaceNode) {
 		}
 		t.Walk(g, node, nil)
 	}
+
+
+	// reset interfaces with degree 0; these interfaces are now unreachable
+	for _, node := range nodes {
+		//Debug.Printf("Run cleanup: considering node %d\n", node.ID())
+		if node.ID() < 0 {
+			continue
+		}
+		degree := g.Degree(node)
+		//Debug.Printf("Run cleanup: node %d has degree %d\n", node.ID(), degree)
+		if degree != 0 {
+			continue
+		}
+		g.RemoveNode(node)
+
+		// release and reset ID allocated for this interface
+		node.ReleaseInterfaceID(node.ID())
+		node.SetID(-1)
+	}
+
 }
