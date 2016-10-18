@@ -338,7 +338,7 @@ func TestLinkInterfaceToOtherModule(t *testing.T) {
 	//Create ns21, ns22
 	Info.Printf("create ns21 eth0 10.10.1.1/24\n")
 	Info.Printf("create ns22 eth0 10.10.1.2/24\n")
-	links_, nets_, cleanup2_ := testNetnsPair(t, "ns2")
+	links_, _, cleanup2_ := testNetnsPair(t, "ns2")
 	defer cleanup2_()
 
 	//POST Module2
@@ -361,10 +361,18 @@ func TestLinkInterfaceToOtherModule(t *testing.T) {
 	//test ping between ns11<->ns22
 	var wg_ sync.WaitGroup
 	wg_.Add(1)
-	go hover.RunInNs(nets_[0], func() error {
+	go hover.RunInNs(nets[0], func() error {
 		defer wg_.Done()
-		//TODO add ping output
-		out_, err_ := exec.Command("ping", "-c", "1", "10.10.1.2").Output()
+		// The arp cache contains a dirty entry, caused by
+		// some intermediate state caused all the various
+		// reconnections done above. This dirty entry would
+		// fail the ping: remove it.
+		out_, err_ := exec.Command("arp", "-d", "10.10.1.2").Output()
+		if err_ != nil {
+			t.Error(string(out_), err_)
+		}
+
+		out_, err_ = exec.Command("ping", "-c", "1", "10.10.1.2").Output()
 		if err_ != nil {
 			t.Error(string(out_), err_)
 		}
