@@ -113,10 +113,6 @@ func provisionNode(g canvas.Graph, this canvas.Node, newIds *[]canvas.NodeIfc) {
 
 func (h *Renderer) Provision(g canvas.Graph, nodes []InterfaceNode) (err error) {
 	newIds := []canvas.NodeIfc{}
-	visitFn := func(prev, this canvas.Node) {
-		provisionNode(g, this, &newIds)
-	}
-	t := canvas.NewDepthFirst(visitFn, filterInterfaceNode)
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -140,8 +136,12 @@ func (h *Renderer) Provision(g canvas.Graph, nodes []InterfaceNode) (err error) 
 			continue
 		}
 		provisionNode(g, node, &newIds)
-		t.Walk(g, node, nil)
 	}
+
+	for _, node:= range g.Nodes() {
+		provisionNode(g, node.(canvas.Node), &newIds)
+	}
+
 	return
 }
 
