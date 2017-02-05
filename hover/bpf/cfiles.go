@@ -56,25 +56,25 @@ struct metadata {
 	u32 pktlen;
 
 	// The module id currently processing the packet.
-	int module_id;
+	u16 module_id;
 
 	// The interface on which a packet was received. Numbering is local to the
 	// module.
-	int in_ifc;
+	u16 in_ifc;
 
 	// If the module intends to forward the packet, it must call pkt_redirect to
 	// set this field to determine the next-hop.
-	int redir_ifc;
+	u16 redir_ifc;
 
-	int clone_ifc;
+	u16 clone_ifc;
 };
 
 // iomodule must implement this function to attach to the networking stack
 static int handle_rx(void *pkt, struct metadata *md);
 static int handle_tx(void *pkt, struct metadata *md);
 
-static int pkt_redirect(void *pkt, struct metadata *md, int ifc);
-static int pkt_mirror(void *pkt, struct metadata *md, int ifc);
+static int pkt_redirect(void *pkt, struct metadata *md, u16 ifc);
+static int pkt_mirror(void *pkt, struct metadata *md, u16 ifc);
 static int pkt_drop(void *pkt, struct metadata *md);
 `
 
@@ -82,7 +82,7 @@ var NetdevRxC string = `
 BPF_TABLE("extern", int, int, modules, MAX_MODULES);
 int ingress(struct __sk_buff *skb) {
 	//bpf_trace_printk("ingress %d %x\n", skb->ifindex, CHAIN_VALUE0);
-	skb->cb[0] = CHAIN_VALUE0 >> 16;
+	skb->cb[0] = CHAIN_VALUE0;
 	skb->cb[1] = CHAIN_VALUE1;
 	skb->cb[2] = CHAIN_VALUE2;
 	skb->cb[3] = CHAIN_VALUE3;
@@ -104,7 +104,7 @@ var NetdevEgressC string = `
 BPF_TABLE("extern", int, int, modules, MAX_MODULES);
 int egress(struct __sk_buff *skb) {
 	//bpf_trace_printk("egress %d %x\n", skb->ifindex, CHAIN_VALUE0);
-	skb->cb[0] = CHAIN_VALUE0 >> 16;
+	skb->cb[0] = CHAIN_VALUE0;
 	skb->cb[1] = CHAIN_VALUE1;
 	skb->cb[2] = CHAIN_VALUE2;
 	skb->cb[3] = CHAIN_VALUE3;
@@ -231,7 +231,7 @@ static int forward(struct __sk_buff *skb, int out_ifc) {
 	struct chain *cur = (struct chain *)skb->cb;
 	struct chain *next = forward_chain.lookup(&out_ifc);
 	if (next) {
-		cur->hops[0] = chain_ifc(next, 0);
+		cur->hops[0] = next->hops[0];
 		cur->hops[1] = next->hops[1];
 		cur->hops[2] = next->hops[2];
 		cur->hops[3] = next->hops[3];
@@ -245,7 +245,7 @@ static int forward(struct __sk_buff *skb, int out_ifc) {
 static int chain_pop(struct __sk_buff *skb) {
 	struct chain *cur = (struct chain *)skb->cb;
 	struct chain orig = *cur;
-	cur->hops[0] = chain_ifc(&orig, 1);
+	cur->hops[0] = cur->hops[1];
 	cur->hops[1] = cur->hops[2];
 	cur->hops[2] = cur->hops[3];
 	cur->hops[3] = 0;
@@ -260,8 +260,9 @@ static int chain_pop(struct __sk_buff *skb) {
 int handle_rx_wrapper(struct __sk_buff *skb) {
 	//bpf_trace_printk("" MODULE_UUID_SHORT ": rx:%d\n", skb->cb[0]);
 	struct metadata md = {};
-	md.in_ifc = skb->cb[0];
-
+	volatile u32 x = skb->cb[0]; // volatile to avoid a rare verifier error
+	md.in_ifc = x >> 16;
+	md.module_id = x & 0xffff;
 	int rc = handle_rx(skb, &md);
 
 	// TODO: implementation
@@ -279,12 +280,12 @@ int handle_rx_wrapper(struct __sk_buff *skb) {
 	return TC_ACT_SHOT;
 }
 
-static int pkt_redirect(void *pkt, struct metadata *md, int ifc) {
+static int pkt_redirect(void *pkt, struct metadata *md, u16 ifc) {
 	md->redir_ifc = ifc;
 	return TC_ACT_OK;
 }
 
-static int pkt_mirror(void *pkt, struct metadata *md, int ifc) {
+static int pkt_mirror(void *pkt, struct metadata *md, u16 ifc) {
 	md->clone_ifc = ifc;
 	return TC_ACT_OK;
 }
