@@ -238,7 +238,7 @@ func (nm *NetlinkMonitor) ensureInterface(g canvas.Graph, node InterfaceNode) er
 		}
 		defer chain.Close()
 		Info.Printf(" %4d: %-11s%s\n", e.F().Ifc(), next.Path(), e)
-		if err := ensureIngressFd(node.Link(), chain.FD()); err != nil {
+		if err := EnsureIngressFd(node.Link(), chain.FD()); err != nil {
 			return err
 		}
 	default:

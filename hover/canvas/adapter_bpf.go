@@ -107,6 +107,7 @@ func (adapter *BpfAdapter) SetConfig(req api.ModuleBase, g Graph, id int) error 
 func (adapter *BpfAdapter) Config() map[string]interface{} { return adapter.config }
 func (adapter *BpfAdapter) UUID() string                   { return "m:" + adapter.uuid }
 func (adapter *BpfAdapter) FD() int                        { return adapter.fd }
+func (adapter *BpfAdapter) SetFD(fd int)                   { adapter.fd = fd}
 
 func (adapter *BpfAdapter) Init() error {
 	fd, err := adapter.bpf.InitRxHandler()

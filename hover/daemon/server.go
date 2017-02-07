@@ -32,6 +32,10 @@ import (
 	"github.com/iovisor/iomodules/hover/bpf"
 	"github.com/iovisor/iomodules/hover/canvas"
 	"github.com/iovisor/iomodules/hover/util"
+
+	"github.com/songgao/water"
+
+	"github.com/vishvananda/netlink"
 )
 
 var (
@@ -51,6 +55,7 @@ type HoverServer struct {
 	handler        http.Handler
 	adapterEntries AdapterEntries
 	patchPanel     *PatchPanel
+	controller     *Controller
 	g              canvas.Graph
 	nlmon          *hover.NetlinkMonitor
 	renderer       *hover.Renderer
@@ -225,12 +230,120 @@ func (p *PatchPanel) Close() {
 	}
 }
 
+type Controller struct {
+	txModule     *canvas.BpfAdapter
+	rxModule     *canvas.BpfAdapter
+	link         netlink.Link
+	ifc          *water.Interface
+}
+
+func NewController() (cm *Controller, err error) {
+	cm = &Controller{}
+
+	config := water.Config{
+		DeviceType: water.TAP,
+	}
+
+	ifc, err2 := water.New(config)
+	if err2 != nil {
+		err = fmt.Errorf("ControllerModule: unable to create tap interface")
+		return
+	}
+
+	link, err2 := netlink.LinkByName(ifc.Name())
+	if err2 != nil {
+		err = fmt.Errorf("ControllerModule: unable to find tap interface")
+		return
+	}
+
+	//err = netlink.LinkSetUp(link)
+	//if err != nil {
+	//	return
+	//}
+
+	// Create tx module
+	idTx := util.NewUUID4()
+	cflagsTx := []string{
+		fmt.Sprintf("-DCONTROLLER_INTERFACE_ID=%d", link.Attrs().Index),
+	}
+
+	bpfTx := bpf.NewBpfModule(bpf.ControllerModuleTxC, cflagsTx)
+	if bpfTx == nil {
+		err = fmt.Errorf("ControllerModule: unable to create TX module")
+		return
+	}
+
+	cm.txModule = canvas.NewBpfAdapter(idTx, "controllerTX", bpfTx)
+
+	fdTx, err2 := bpfTx.LoadNet("controller_module_tx")
+	if err2 != nil {
+		err = fmt.Errorf("ControllerModule: unable to load TX module")
+		return
+	}
+	// FIXME: is it necessary to duplicate the fd?
+	cm.txModule.SetFD(fdTx)
+
+	// Create rx module
+	idRx := util.NewUUID4()
+
+	bpfRx := bpf.NewBpfModule(bpf.ControllerModuleRxC, []string{})
+	if bpfRx == nil {
+		err = fmt.Errorf("ControllerModule: unable to create RX module")
+		return
+	}
+
+	cm.rxModule = canvas.NewBpfAdapter(idRx, "controllerRX", bpfRx)
+
+	fdRx, err3 := bpfRx.LoadNet("controller_module_rx")
+	if err3 != nil {
+		err = fmt.Errorf("ControllerModule: unable to load RX module")
+		return
+	}
+	// FIXME: is it necessary to duplicate the fd?
+	cm.rxModule.SetFD(fdRx)
+
+	err = hover.EnsureIngressFd(link, fdRx)
+
+	cm.ifc = ifc
+
+	return
+}
+
+func (c *Controller) Close() {
+	// TODO: Implement
+}
+
+func (c *Controller) Run() {
+	packet := make([]byte, 2000)
+	for {
+		n, err := c.ifc.Read(packet)
+		_ = n
+		if err != nil {
+			Error.Println("Error reading from controller iface")
+			continue
+		}
+		Error.Println("packet arrived from controller iface")
+	}
+}
+
 func (s *HoverServer) Init() (err error) {
 	s.adapterEntries = make(map[string]*canvas.AdapterNode)
 	s.patchPanel, err = NewPatchPanel()
 	if err != nil {
 		return
 	}
+
+	s.controller, err = NewController()
+	if err != nil {
+		return
+	}
+
+	moduleId := strconv.Itoa(int(bpf.MAX_MODULES - 1))
+	moduleFd := strconv.Itoa(s.controller.txModule.FD())
+	s.patchPanel.modules.Set(moduleId, moduleFd)
+
+	go s.controller.Run()
+
 	s.renderer = hover.NewRenderer()
 	s.nlmon, err = hover.NewNetlinkMonitor(s.g, s.renderer, s.patchPanel.modules.(*bpf.BpfTable))
 	if err != nil {

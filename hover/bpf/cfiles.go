@@ -20,11 +20,14 @@ var IomoduleH string = `
 #include <bcc/proto.h>
 #include <uapi/linux/pkt_cls.h>
 
+#define CONTROLLER_MODULE_ID (MAX_MODULES - 1)
+
 enum {
 	RX_OK,
 	RX_REDIRECT,
 	RX_DROP,
 	RX_RECIRCULATE,
+	RX_CONTROLLER,
 	RX_ERROR,
 };
 
@@ -257,6 +260,12 @@ static int chain_pop(struct __sk_buff *skb) {
 	return TC_ACT_OK;
 }
 
+static int to_controller(struct __sk_buff *skb) {
+	modules.call(skb, CONTROLLER_MODULE_ID);
+	bpf_trace_printk("to controller miss\n");
+	return TC_ACT_OK;
+}
+
 int handle_rx_wrapper(struct __sk_buff *skb) {
 	//bpf_trace_printk("" MODULE_UUID_SHORT ": rx:%d\n", skb->cb[0]);
 	struct metadata md = {};
@@ -276,6 +285,8 @@ int handle_rx_wrapper(struct __sk_buff *skb) {
 		//	break;
 		case RX_DROP:
 			return TC_ACT_SHOT;
+		case RX_CONTROLLER:
+			return to_controller(skb);
 	}
 	return TC_ACT_SHOT;
 }
@@ -288,5 +299,41 @@ static int pkt_redirect(void *pkt, struct metadata *md, u16 ifc) {
 static int pkt_mirror(void *pkt, struct metadata *md, u16 ifc) {
 	md->clone_ifc = ifc;
 	return TC_ACT_OK;
+}
+`
+
+// Sends the packet to the controller
+var ControllerModuleTxC string = `
+int controller_module_tx(struct __sk_buff *skb) {
+	bpf_trace_printk("to controller\n");
+
+	volatile u32 x = skb->cb[0]; // volatile to avoid a rare verifier error
+	u16 in_ifc = x >> 16;
+	u16 module_id = x & 0xffff;
+
+	// TODO: Push header with metadata
+
+	bpf_redirect(CONTROLLER_INTERFACE_ID, 0);
+	return 7;
+}
+`
+
+// Receives packet from controller and forwards it to the IOModule
+var ControllerModuleRxC string = `
+BPF_TABLE("extern", int, int, modules, MAX_MODULES);
+int controller_module_rx(struct __sk_buff *skb) {
+	bpf_trace_printk("from controller\n");
+	// TODO: Pop header info and read module id and in_ifc
+
+	u16 in_ifc = 0;
+	u16 module_id = 0;
+	u16 reason = 0;	// Egress vs ingress (necessary?)
+
+	skb->cb[0] = in_ifc << 16 | module_id;
+	skb->cb[1] = 0;
+	skb->cb[2] = 0;
+	skb->cb[3] = 0;
+	modules.call(skb, module_id);
+	return 2;
 }
 `
