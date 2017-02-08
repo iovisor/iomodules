@@ -72,7 +72,7 @@ type AdapterNode struct {
 }
 
 func NewAdapter(req api.ModuleBase, g Graph, id int) (adapter Adapter, err error) {
-	uuid := util.NewUUID4()
+	uuid := fmt.Sprintf("%08d", id)
 
 	parts := strings.SplitN(req.ModuleType, "/", 2)
 	switch parts[0] {
@@ -82,7 +82,7 @@ func NewAdapter(req api.ModuleBase, g Graph, id int) (adapter Adapter, err error
 			subtype = parts[1]
 		}
 		a := &BpfAdapter{
-			uuid:    uuid[:8],
+			uuid:    uuid,
 			perm:    PermR | PermW,
 			config:  make(map[string]interface{}),
 			subtype: subtype,
@@ -93,7 +93,7 @@ func NewAdapter(req api.ModuleBase, g Graph, id int) (adapter Adapter, err error
 		adapter = a
 	case "bridge":
 		a := &BridgeAdapter{
-			uuid:   uuid[:8],
+			uuid:   uuid,
 			name:   req.DisplayName,
 			tags:   req.Tags,
 			perm:   PermR | PermW,
