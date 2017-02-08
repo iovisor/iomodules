@@ -17,6 +17,7 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"net/http"
 	"runtime"
 	"strconv"
@@ -256,10 +257,17 @@ func NewController() (cm *Controller, err error) {
 		return
 	}
 
-	//err = netlink.LinkSetUp(link)
-	//if err != nil {
-	//	return
-	//}
+	// avoid ipv6 being assigned to the tap interface
+	_, err1 := exec.Command("ip", "link", "set", "dev", ifc.Name(), "addrgenmode", "none").Output()
+	if err1 != nil {
+		err = fmt.Errorf("ControllerModule: unable to configure tap interface")
+		return
+	}
+
+	err = netlink.LinkSetUp(link)
+	if err != nil {
+		return
+	}
 
 	// Create tx module
 	idTx := util.NewUUID4()
