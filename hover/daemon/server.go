@@ -16,8 +16,10 @@ package daemon
 
 import (
 	"encoding/json"
+	"encoding/gob"
 	"fmt"
 	"os/exec"
+	"net"
 	"net/http"
 	"runtime"
 	"strconv"
@@ -231,11 +233,22 @@ func (p *PatchPanel) Close() {
 	}
 }
 
+type Packet struct {
+	Module_id  uint16
+	Port_id    uint16
+	Packet_len uint16
+	Reason     uint16
+	Data       []byte
+}
+
 type Controller struct {
 	txModule     *canvas.BpfAdapter
 	rxModule     *canvas.BpfAdapter
 	link         netlink.Link
 	ifc          *water.Interface
+	conn         net.Conn
+	connected    bool
+	encoder     *gob.Encoder
 }
 
 func NewController() (cm *Controller, err error) {
@@ -285,7 +298,7 @@ func NewController() (cm *Controller, err error) {
 
 	fdTx, err2 := bpfTx.LoadNet("controller_module_tx")
 	if err2 != nil {
-		err = fmt.Errorf("ControllerModule: unable to load TX module")
+		err = fmt.Errorf("ControllerModule: unable to load TX module: %s", err2)
 		return
 	}
 	// FIXME: is it necessary to duplicate the fd?
@@ -323,15 +336,64 @@ func (c *Controller) Close() {
 
 func (c *Controller) Run() {
 	packet := make([]byte, 2000)
+	var index uint32 = 0;
 	for {
 		n, err := c.ifc.Read(packet)
 		_ = n
+		index++
+		index %= 1024
+
 		if err != nil {
 			Error.Println("Error reading from controller iface")
 			continue
 		}
-		Error.Println("packet arrived from controller iface")
+
+		if c.connected {
+
+			//index_tbl := c.txModule.Table("index_map")
+			//if index_tbl == nil {
+			//	panic("index table not found")
+			//}
+            //
+			//index, ok := index_tbl.Get("0")
+			//if !ok {
+			//	panic("index not found on index table")
+			//}
+
+			md_tbl := c.txModule.Table("md_map")
+			if md_tbl == nil {
+				panic("md_map table not found")
+			}
+
+			md, ok := md_tbl.Get(strconv.FormatUint(uint64(index), 10))
+			if !ok {
+				panic("md entry not found")
+			}
+
+			p := &Packet{}
+			_, err := fmt.Sscanf(md.(api.ModuleTableEntry).Value, "{ 0x%x 0x%x 0x%x 0x%x }",
+				&p.Module_id, &p.Port_id, &p.Packet_len, &p.Reason)
+			if err != nil {
+				panic("Error parsing packet")
+			}
+			p.Data = packet
+
+			c.encoder.Encode(p)
+		}
 	}
+}
+
+func (c *Controller) ConnectToRemoteController(addr string) (err error) {
+	c.conn, err = net.Dial("tcp", addr)
+	if err != nil {
+		Error.Println("Connection error", err)
+		return err
+	}
+
+	c.encoder = gob.NewEncoder(c.conn)
+	c.connected = true
+
+	return
 }
 
 func (s *HoverServer) Init() (err error) {
@@ -343,6 +405,7 @@ func (s *HoverServer) Init() (err error) {
 
 	s.controller, err = NewController()
 	if err != nil {
+		Error.Printf("Error creating controller: \n", err)
 		return
 	}
 
@@ -745,6 +808,24 @@ func (s *HoverServer) handleExternalInterfaceList(r *http.Request) routeResponse
 	}
 }
 
+type controllerEntry struct {
+	Addr   string `json:"addr"`
+}
+
+func (s *HoverServer) handleControllerPost(r *http.Request) routeResponse {
+	var req controllerEntry
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		panic(err)
+	}
+
+	err := s.controller.ConnectToRemoteController(req.Addr)
+	if err != nil {
+		panic(fmt.Errorf("Error connecting to controller: %s", req.Addr))
+	}
+
+	return routeResponse{}
+}
+
 func (s *HoverServer) Handler() http.Handler {
 	return s.handler
 }
@@ -775,6 +856,7 @@ func NewServer() *HoverServer {
 	// modules/{moduleId}/tables/{tableId}/entries
 	// links
 	// external_interfaces
+	// controllers
 
 	mod := rtr.PathPrefix("/modules").Subrouter()
 	mod.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleModuleList))
@@ -803,6 +885,9 @@ func NewServer() *HoverServer {
 
 	ext := rtr.PathPrefix("/external_interfaces").Subrouter()
 	ext.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleExternalInterfaceList))
+
+	cnt := rtr.PathPrefix("/controllers").Subrouter()
+	cnt.Methods("POST").Path("/").HandlerFunc(makeHandler(s.handleControllerPost))
 
 	return s
 }

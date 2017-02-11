@@ -304,17 +304,59 @@ static int pkt_mirror(void *pkt, struct metadata *md, u16 ifc) {
 
 // Sends the packet to the controller
 var ControllerModuleTxC string = `
+#include <bcc/proto.h>
+#include <bcc/helpers.h>
+#include <linux/kernel.h>
+#include <linux/skbuff.h>
+
+struct metadata {
+	u16 module_id;
+	u16 port_id;
+	u32 packet_len;
+	u16 reason;
+};
+
+BPF_TABLE("array", u32, struct metadata, md_map, 1024);
+BPF_TABLE("array", u32, u32, index_map, 1);
+
 int controller_module_tx(struct __sk_buff *skb) {
 	bpf_trace_printk("to controller\n");
 
-	volatile u32 x = skb->cb[0]; // volatile to avoid a rare verifier error
+	u32 zero = 0;
+	u32 *index = index_map.lookup(&zero);
+	if (!index) {
+		goto ERROR;
+	}
+
+	rcu_read_lock();
+
+	(*index)++;
+	*index %= 1024;
+
+	u32 i = *index;
+
+	struct metadata *md = md_map.lookup(&i);
+	if (!md) {
+		rcu_read_unlock();
+		goto ERROR;
+	}
+
+	volatile u32 x = skb->cb[0]; // volatile to avoid verifier error on kernels < 4.10
 	u16 in_ifc = x >> 16;
 	u16 module_id = x & 0xffff;
 
-	// TODO: Push header with metadata
+	md->module_id = module_id;
+	md->port_id = in_ifc;
+	md->packet_len = skb->len;
+	md->reason = 0; // TODO: implement
 
 	bpf_redirect(CONTROLLER_INTERFACE_ID, 0);
+
+	rcu_read_unlock();
 	return 7;
+ERROR:
+	bpf_trace_printk("Error.......\n");
+	return 7;	//TODO: check code
 }
 `
 
