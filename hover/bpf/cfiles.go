@@ -316,14 +316,14 @@ struct metadata {
 	u16 reason;
 };
 
-BPF_TABLE("array", u32, struct metadata, md_map, 1024);
-BPF_TABLE("array", u32, u32, index_map, 1);
+BPF_TABLE("array", u32, struct metadata, md_map_tx, 1024);
+BPF_TABLE("array", u32, u32, index_map_tx, 1);
 
 int controller_module_tx(struct __sk_buff *skb) {
 	bpf_trace_printk("to controller\n");
 
 	u32 zero = 0;
-	u32 *index = index_map.lookup(&zero);
+	u32 *index = index_map_tx.lookup(&zero);
 	if (!index) {
 		goto ERROR;
 	}
@@ -335,7 +335,7 @@ int controller_module_tx(struct __sk_buff *skb) {
 
 	u32 i = *index;
 
-	struct metadata *md = md_map.lookup(&i);
+	struct metadata *md = md_map_tx.lookup(&i);
 	if (!md) {
 		rcu_read_unlock();
 		goto ERROR;
@@ -362,20 +362,55 @@ ERROR:
 
 // Receives packet from controller and forwards it to the IOModule
 var ControllerModuleRxC string = `
+#include <bcc/proto.h>
+#include <bcc/helpers.h>
+#include <linux/kernel.h>
+#include <linux/skbuff.h>
+
 BPF_TABLE("extern", int, int, modules, MAX_MODULES);
+
+struct metadata {
+	u16 module_id;
+	u16 port_id;
+};
+
+BPF_TABLE("array", u32, struct metadata, md_map_rx, 1024);
+BPF_TABLE("array", u32, u32, index_map_rx, 1);
+
 int controller_module_rx(struct __sk_buff *skb) {
 	bpf_trace_printk("from controller\n");
-	// TODO: Pop header info and read module id and in_ifc
 
-	u16 in_ifc = 0;
-	u16 module_id = 0;
-	u16 reason = 0;	// Egress vs ingress (necessary?)
+	u32 zero = 0;
+	u32 *index = index_map_rx.lookup(&zero);
+	if (!index) {
+		goto ERROR;
+	}
+
+	rcu_read_lock();
+
+	(*index)++;
+	*index %= 1024;
+	rcu_read_unlock();
+
+	u32 i = *index;
+
+	struct metadata *md = md_map_rx.lookup(&i);
+	if (!md) {
+		goto ERROR;
+	}
+
+	u16 in_ifc = md->port_id;
+	u16 module_id = md->module_id;
 
 	skb->cb[0] = in_ifc << 16 | module_id;
 	skb->cb[1] = 0;
 	skb->cb[2] = 0;
 	skb->cb[3] = 0;
 	modules.call(skb, module_id);
+	return 2;
+
+ERROR:
+	bpf_trace_printk("ControllerModuleRX: Error.......\n");
 	return 2;
 }
 `

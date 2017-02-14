@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"encoding/gob"
 	"fmt"
+	"io"
 	"os/exec"
 	"net"
 	"net/http"
@@ -233,11 +234,23 @@ func (p *PatchPanel) Close() {
 	}
 }
 
-type Packet struct {
+type PacketIn struct {
 	Module_id  uint16
 	Port_id    uint16
 	Packet_len uint16
 	Reason     uint16
+	Data       []byte
+}
+
+const (
+	INGRESS = 0
+	EGRESS = 1
+)
+
+type PacketOut struct {
+	Module_id  uint16
+	Port_id    uint16
+	Sense      uint16 /* ingress = 0, egress = 1 */
 	Data       []byte
 }
 
@@ -249,9 +262,10 @@ type Controller struct {
 	conn         net.Conn
 	connected    bool
 	encoder     *gob.Encoder
+	g            canvas.Graph
 }
 
-func NewController() (cm *Controller, err error) {
+func NewController(g canvas.Graph) (cm *Controller, err error) {
 	cm = &Controller{}
 
 	config := water.Config{
@@ -326,6 +340,7 @@ func NewController() (cm *Controller, err error) {
 	err = hover.EnsureIngressFd(link, fdRx)
 
 	cm.ifc = ifc
+	cm.g = g
 
 	return
 }
@@ -360,7 +375,7 @@ func (c *Controller) Run() {
 			//	panic("index not found on index table")
 			//}
 
-			md_tbl := c.txModule.Table("md_map")
+			md_tbl := c.txModule.Table("md_map_tx")
 			if md_tbl == nil {
 				panic("md_map table not found")
 			}
@@ -370,7 +385,7 @@ func (c *Controller) Run() {
 				panic("md entry not found")
 			}
 
-			p := &Packet{}
+			p := &PacketIn{}
 			_, err := fmt.Sscanf(md.(api.ModuleTableEntry).Value, "{ 0x%x 0x%x 0x%x 0x%x }",
 				&p.Module_id, &p.Port_id, &p.Packet_len, &p.Reason)
 			if err != nil {
@@ -383,6 +398,81 @@ func (c *Controller) Run() {
 	}
 }
 
+func (c *Controller) RunExternal() (err error) {
+
+	dec := gob.NewDecoder(c.conn)
+	var index uint32 = 0
+
+	for {
+		p := &PacketOut{}
+		err1 := dec.Decode(p)
+		if err1 == io.EOF {
+			Info.Printf("Controller: Remote Controller Disconnected")
+			return nil
+		} else if err1 != nil {
+			continue
+		}
+
+		// final destination of the packet
+		var ifc uint16
+		var module_id uint16
+
+		if p.Sense == INGRESS {
+			ifc = p.Port_id
+			module_id = p.Module_id
+		} else if p.Sense == EGRESS {
+			node := c.g.Node(int(p.Module_id))
+			if node == nil {
+				Warn.Printf("Controller: Bad module_id received")
+				continue
+			}
+
+			to := c.g.From(node)
+			found := false
+			for _, n := range to {
+				e := c.g.Edge(node, n)
+				if uint16(e.(canvas.Edge).F().I) == p.Port_id {
+					module_id = uint16(e.(canvas.Edge).T().N)
+					ifc = uint16(e.(canvas.Edge).T().I)
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				Warn.Printf("Controller: Next Module not found")
+				continue;
+			}
+
+		} else {
+			Warn.Printf("Controller: Bad sense received")
+			continue
+		}
+
+		index++
+		index %= 1024
+
+		// save metadata
+		md_tbl := c.rxModule.Table("md_map_rx")
+		if md_tbl == nil {
+			panic("md_map table not found")
+		}
+
+		value := fmt.Sprintf("{0x%x 0x%x}", module_id, ifc)
+		err = md_tbl.Set(strconv.FormatUint(uint64(index), 10), value)
+		if err != nil {
+			fmt.Printf("error is: ", err)
+			panic("error saving md")
+		}
+
+		_, err = c.ifc.Write(p.Data)
+		if err != nil {
+			panic("error writing  packet")
+		}
+	}
+	return nil
+}
+
 func (c *Controller) ConnectToRemoteController(addr string) (err error) {
 	c.conn, err = net.Dial("tcp", addr)
 	if err != nil {
@@ -392,6 +482,8 @@ func (c *Controller) ConnectToRemoteController(addr string) (err error) {
 
 	c.encoder = gob.NewEncoder(c.conn)
 	c.connected = true
+
+	go c.RunExternal() //process packets sent by the controller
 
 	return
 }
@@ -403,7 +495,7 @@ func (s *HoverServer) Init() (err error) {
 		return
 	}
 
-	s.controller, err = NewController()
+	s.controller, err = NewController(s.g)
 	if err != nil {
 		Error.Printf("Error creating controller: \n", err)
 		return
