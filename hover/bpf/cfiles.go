@@ -316,7 +316,7 @@ struct metadata {
 	u16 reason;
 };
 
-BPF_TABLE("array", u32, struct metadata, md_map_tx, 1024);
+BPF_TABLE("array", u32, struct metadata, md_map_tx, MD_MAP_SIZE);
 BPF_TABLE("array", u32, u32, index_map_tx, 1);
 
 int controller_module_tx(struct __sk_buff *skb) {
@@ -331,7 +331,7 @@ int controller_module_tx(struct __sk_buff *skb) {
 	rcu_read_lock();
 
 	(*index)++;
-	*index %= 1024;
+	*index %= MD_MAP_SIZE;
 
 	u32 i = *index;
 
@@ -374,7 +374,7 @@ struct metadata {
 	u16 port_id;
 };
 
-BPF_TABLE("array", u32, struct metadata, md_map_rx, 1024);
+BPF_TABLE("array", u32, struct metadata, md_map_rx, MD_MAP_SIZE);
 BPF_TABLE("array", u32, u32, index_map_rx, 1);
 
 int controller_module_rx(struct __sk_buff *skb) {
@@ -389,7 +389,7 @@ int controller_module_rx(struct __sk_buff *skb) {
 	rcu_read_lock();
 
 	(*index)++;
-	*index %= 1024;
+	*index %= MD_MAP_SIZE;
 	rcu_read_unlock();
 
 	u32 i = *index;

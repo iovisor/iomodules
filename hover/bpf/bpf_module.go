@@ -58,6 +58,8 @@ type compileRequest struct {
 const (
 	MAX_MODULES    uint = 1024
 	MAX_INTERFACES uint = 128
+
+	MD_MAP_SIZE    uint = 1024 // Number of elements in the map for metadata
 )
 
 var (
@@ -72,6 +74,7 @@ func bpfInit() {
 		fmt.Sprintf("-DMAX_INTERFACES=%d", MAX_INTERFACES),
 		fmt.Sprintf("-DMAX_MODULES=%d", MAX_MODULES),
 		"-DMAX_METADATA=10240",
+		fmt.Sprintf("-DMD_MAP_SIZE=%d", MD_MAP_SIZE),
 	}
 	compileCh = make(chan compileRequest)
 	go compile()
