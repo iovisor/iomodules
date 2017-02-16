@@ -70,6 +70,9 @@ struct metadata {
 	u16 redir_ifc;
 
 	u16 clone_ifc;
+
+	// Why the packet is being sent to the controller
+	u16 reason;
 };
 
 // iomodule must implement this function to attach to the networking stack
@@ -260,7 +263,8 @@ static int chain_pop(struct __sk_buff *skb) {
 	return TC_ACT_OK;
 }
 
-static int to_controller(struct __sk_buff *skb) {
+static int to_controller(struct __sk_buff *skb, u16 reason) {
+	skb->cb[1] = reason;
 	modules.call(skb, CONTROLLER_MODULE_ID);
 	bpf_trace_printk("to controller miss\n");
 	return TC_ACT_OK;
@@ -286,7 +290,7 @@ int handle_rx_wrapper(struct __sk_buff *skb) {
 		case RX_DROP:
 			return TC_ACT_SHOT;
 		case RX_CONTROLLER:
-			return to_controller(skb);
+			return to_controller(skb, md.reason);
 	}
 	return TC_ACT_SHOT;
 }
@@ -298,6 +302,11 @@ static int pkt_redirect(void *pkt, struct metadata *md, u16 ifc) {
 
 static int pkt_mirror(void *pkt, struct metadata *md, u16 ifc) {
 	md->clone_ifc = ifc;
+	return TC_ACT_OK;
+}
+
+static int pkt_controller(void *pkt, struct metadata *md, u16 reason) {
+	md->reason = reason;
 	return TC_ACT_OK;
 }
 `
@@ -341,14 +350,18 @@ int controller_module_tx(struct __sk_buff *skb) {
 		goto ERROR;
 	}
 
-	volatile u32 x = skb->cb[0]; // volatile to avoid verifier error on kernels < 4.10
+	volatile u32 x; // volatile to avoid verifier error on kernels < 4.10
+	x = skb->cb[0];
 	u16 in_ifc = x >> 16;
 	u16 module_id = x & 0xffff;
+
+	x = skb->cb[1];
+	u16 reason = x & 0xffff;
 
 	md->module_id = module_id;
 	md->port_id = in_ifc;
 	md->packet_len = skb->len;
-	md->reason = 0; // TODO: implement
+	md->reason = reason;
 
 	bpf_redirect(CONTROLLER_INTERFACE_ID, 0);
 
