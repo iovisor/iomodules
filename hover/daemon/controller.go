@@ -61,6 +61,8 @@ type Controller struct {
 	connected    bool
 	encoder     *gob.Encoder
 	g            canvas.Graph
+	// Index used to send packets to the dataplane
+	p_index uint32
 }
 
 func NewController(g canvas.Graph) (cm *Controller, err error) {
@@ -152,7 +154,6 @@ func (c *Controller) Run() {
 	var index uint32 = 0;
 	for {
 		n, err := c.ifc.Read(packet)
-		_ = n
 		index++
 		index %= 1024
 
@@ -189,9 +190,19 @@ func (c *Controller) Run() {
 			if err != nil {
 				panic("Error parsing packet")
 			}
-			p.Data = packet
 
-			c.encoder.Encode(p)
+			if p.Packet_len != uint16(n) {
+				panic("Length does not match")
+			}
+
+			p.Data = packet[:n]
+
+			// should the packet be processed locally or sent to controller?
+			if p.Reason > bpf.RESERVED_REASON_MIN {
+				c.processLocalPacket(p)
+			} else {
+				c.encoder.Encode(p)
+			}
 		}
 	}
 }
@@ -199,7 +210,6 @@ func (c *Controller) Run() {
 func (c *Controller) RunExternal() (err error) {
 
 	dec := gob.NewDecoder(c.conn)
-	var index uint32 = 0
 
 	for {
 		p := &PacketOut{}
@@ -247,26 +257,7 @@ func (c *Controller) RunExternal() (err error) {
 			continue
 		}
 
-		index++
-		index %= 1024
-
-		// save metadata
-		md_tbl := c.rxModule.Table("md_map_rx")
-		if md_tbl == nil {
-			panic("md_map table not found")
-		}
-
-		value := fmt.Sprintf("{0x%x 0x%x}", module_id, ifc)
-		err = md_tbl.Set(strconv.FormatUint(uint64(index), 10), value)
-		if err != nil {
-			fmt.Printf("error is: ", err)
-			panic("error saving md")
-		}
-
-		_, err = c.ifc.Write(p.Data)
-		if err != nil {
-			panic("error writing  packet")
-		}
+		c.sendPacketToIOModule(module_id, ifc, p.Data)
 	}
 	return nil
 }
@@ -284,4 +275,58 @@ func (c *Controller) ConnectToRemoteController(addr string) (err error) {
 	go c.RunExternal() //process packets sent by the controller
 
 	return
+}
+
+func (c *Controller) sendPacketToIOModule(module_id uint16, ifc uint16, data []byte) (err error) {
+	c.p_index++
+	c.p_index %= bpf.MD_MAP_SIZE
+
+	// save metadata
+	md_tbl := c.rxModule.Table("md_map_rx")
+	if md_tbl == nil {
+		panic("md_map table not found")
+	}
+
+	value := fmt.Sprintf("{0x%x 0x%x}", module_id, ifc)
+	err = md_tbl.Set(strconv.FormatUint(uint64(c.p_index), 10), value)
+	if err != nil {
+		fmt.Printf("error is: ", err)
+		panic("error saving md")
+	}
+
+	_, err = c.ifc.Write(data)
+	if err != nil {
+		Error.Printf("error writing  packet: %s", err)
+		panic("error writing  packet")
+	}
+	return
+}
+
+func (c *Controller) processLocalPacket(p *PacketIn) {
+	switch p.Reason {
+	case bpf.PKT_BROADCAST:
+		c.broadcastPacket(p)
+	default:
+		Warn.Printf("Invalid reason: %d", p.Reason)
+	}
+}
+
+func (c *Controller) broadcastPacket(p *PacketIn) {
+	node := c.g.Node(int(p.Module_id))
+	if node == nil {
+		Warn.Printf("Controller: Bad module_id received")
+		return
+	}
+
+	to := c.g.From(node)
+	for _, n := range to {
+		e := c.g.Edge(node, n)
+		// Do not broadcast packet on ingress ifc
+		if uint16(e.(canvas.Edge).F().I) == p.Port_id {
+			continue
+		}
+		module_id := uint16(e.(canvas.Edge).T().N)
+		ifc := uint16(e.(canvas.Edge).T().I)
+		c.sendPacketToIOModule(module_id, ifc, p.Data)
+	}
 }

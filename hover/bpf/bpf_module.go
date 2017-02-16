@@ -17,6 +17,7 @@ package bpf
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"regexp"
 	"runtime"
 	"sync"
@@ -59,7 +60,13 @@ const (
 	MAX_MODULES    uint = 1024
 	MAX_INTERFACES uint = 128
 
-	MD_MAP_SIZE    uint = 1024 // Number of elements in the map for metadata
+	MD_MAP_SIZE    uint32 = 1024 // Number of elements in the map for metadata
+)
+
+// Reserved reasons
+const (
+	PKT_BROADCAST       uint16 = math.MaxUint16 - iota
+	RESERVED_REASON_MIN uint16 = math.MaxUint16 - iota
 )
 
 var (
@@ -75,6 +82,7 @@ func bpfInit() {
 		fmt.Sprintf("-DMAX_MODULES=%d", MAX_MODULES),
 		"-DMAX_METADATA=10240",
 		fmt.Sprintf("-DMD_MAP_SIZE=%d", MD_MAP_SIZE),
+		fmt.Sprintf("-DPKT_BROADCAST=%d", PKT_BROADCAST),
 	}
 	compileCh = make(chan compileRequest)
 	go compile()
