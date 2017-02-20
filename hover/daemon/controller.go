@@ -163,17 +163,6 @@ func (c *Controller) Run() {
 		}
 
 		if c.connected {
-
-			//index_tbl := c.txModule.Table("index_map")
-			//if index_tbl == nil {
-			//	panic("index table not found")
-			//}
-            //
-			//index, ok := index_tbl.Get("0")
-			//if !ok {
-			//	panic("index not found on index table")
-			//}
-
 			md_tbl := c.txModule.Table("md_map_tx")
 			if md_tbl == nil {
 				panic("md_map table not found")
