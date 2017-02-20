@@ -17,8 +17,8 @@ import (
 	"encoding/gob"
 	"fmt"
 	"io"
-	"os/exec"
 	"net"
+	"os/exec"
 	"strconv"
 
 	"github.com/iovisor/iomodules/hover"
@@ -37,30 +37,31 @@ type PacketIn struct {
 	Port_id    uint16
 	Packet_len uint16
 	Reason     uint16
+	Metadata   [3]uint32
 	Data       []byte
 }
 
 const (
 	INGRESS = 0
-	EGRESS = 1
+	EGRESS  = 1
 )
 
 type PacketOut struct {
-	Module_id  uint16
-	Port_id    uint16
-	Sense      uint16 /* ingress = 0, egress = 1 */
-	Data       []byte
+	Module_id uint16
+	Port_id   uint16
+	Sense     uint16 /* ingress = 0, egress = 1 */
+	Data      []byte
 }
 
 type Controller struct {
-	txModule     *canvas.BpfAdapter
-	rxModule     *canvas.BpfAdapter
-	link         netlink.Link
-	ifc          *water.Interface
-	conn         net.Conn
-	connected    bool
-	encoder     *gob.Encoder
-	g            canvas.Graph
+	txModule  *canvas.BpfAdapter
+	rxModule  *canvas.BpfAdapter
+	link      netlink.Link
+	ifc       *water.Interface
+	conn      net.Conn
+	connected bool
+	encoder   *gob.Encoder
+	g         canvas.Graph
 	// Index used to send packets to the dataplane
 	p_index uint32
 }
@@ -151,7 +152,7 @@ func (c *Controller) Close() {
 
 func (c *Controller) Run() {
 	packet := make([]byte, 2000)
-	var index uint32 = 0;
+	var index uint32 = 0
 	for {
 		n, err := c.ifc.Read(packet)
 		index++
@@ -168,7 +169,7 @@ func (c *Controller) Run() {
 			//if index_tbl == nil {
 			//	panic("index table not found")
 			//}
-            //
+			//
 			//index, ok := index_tbl.Get("0")
 			//if !ok {
 			//	panic("index not found on index table")
@@ -185,8 +186,8 @@ func (c *Controller) Run() {
 			}
 
 			p := &PacketIn{}
-			_, err := fmt.Sscanf(md.(api.ModuleTableEntry).Value, "{ 0x%x 0x%x 0x%x 0x%x }",
-				&p.Module_id, &p.Port_id, &p.Packet_len, &p.Reason)
+			_, err := fmt.Sscanf(md.(api.ModuleTableEntry).Value, "{ 0x%x 0x%x 0x%x 0x%x [ 0x%x 0x%x 0x%x ] }",
+				&p.Module_id, &p.Port_id, &p.Packet_len, &p.Reason, &p.Metadata[0], &p.Metadata[1], &p.Metadata[2])
 			if err != nil {
 				panic("Error parsing packet")
 			}
@@ -249,7 +250,7 @@ func (c *Controller) RunExternal() (err error) {
 
 			if !found {
 				Warn.Printf("Controller: Next Module not found")
-				continue;
+				continue
 			}
 
 		} else {
