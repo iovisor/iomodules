@@ -309,6 +309,13 @@ static int pkt_controller(void *pkt, struct metadata *md, u16 reason) {
 	md->reason = reason;
 	return TC_ACT_OK;
 }
+
+static int pkt_set_metadata(struct __sk_buff *skb, u32 md[3]){
+	skb->cb[2] = md[0];
+	skb->cb[3] = md[1];
+	skb->cb[4] = md[2];
+	return TC_ACT_OK;
+}
 `
 
 // Sends the packet to the controller
@@ -323,6 +330,7 @@ struct metadata {
 	u16 port_id;
 	u32 packet_len;
 	u16 reason;
+	u32 md[3];  // generic metadata
 };
 
 BPF_TABLE("array", u32, struct metadata, md_map_tx, MD_MAP_SIZE);
@@ -362,6 +370,15 @@ int controller_module_tx(struct __sk_buff *skb) {
 	md->port_id = in_ifc;
 	md->packet_len = skb->len;
 	md->reason = reason;
+
+	x=skb->cb[2];
+	md->md[0] = x;
+	x=skb->cb[3];
+	md->md[1] = x;
+	x=skb->cb[4];
+	md->md[2] = x;
+
+	bpf_trace_printk("pkt.to.ctrl md(1,2,3) %d %d %d\n",md->md[0],md->md[1],md->md[2]);
 
 	bpf_redirect(CONTROLLER_INTERFACE_ID, 0);
 
