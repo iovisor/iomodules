@@ -16,6 +16,7 @@ package hover
 
 import (
 	"fmt"
+	"os/exec"
 	"strconv"
 	"sync"
 	"syscall"
@@ -232,6 +233,18 @@ func (nm *NetlinkMonitor) ensureInterface(g canvas.Graph, node InterfaceNode) er
 		if e.Serialize()[0] == 0 {
 			return nil
 		}
+
+		// remove all the ip addresses on that interface
+		_, err1 := exec.Command("ip", "address", "flush", "dev", node.Link().Attrs().Name).Output()
+		if err1 != nil {
+			return fmt.Errorf("unable to flush addresses in interface")
+		}
+
+		_, err2 := exec.Command("ip", "link", "set", node.Link().Attrs().Name, "promisc", "on").Output()
+		if err2 != nil {
+			return fmt.Errorf("ControllerModule: unable to configure tap interface")
+		}
+
 		chain, err := NewIngressChain(e.Serialize())
 		if err != nil {
 			return err
