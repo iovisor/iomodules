@@ -14,6 +14,8 @@
 package daemon
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/gob"
 	"fmt"
 	"io"
@@ -33,12 +35,16 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-type PacketIn struct {
+type PacketInMd struct {
 	Module_id  uint16
 	Port_id    uint16
-	Packet_len uint16
+	Packet_len uint32
 	Reason     uint16
 	Metadata   [3]uint32
+}
+
+type PacketIn struct {
+	Md         PacketInMd
 	Data       []byte
 }
 
@@ -57,6 +63,7 @@ type PacketOut struct {
 type Controller struct {
 	txModule  *canvas.BpfAdapter
 	rxModule  *canvas.BpfAdapter
+	bpfTx     *bpf.Module
 	link      netlink.Link
 	ifc       *water.Interface
 	conn      net.Conn
@@ -100,19 +107,16 @@ func NewController(g canvas.Graph) (cm *Controller, err error) {
 
 	// Create tx module
 	idTx := util.NewUUID4()
-	cflagsTx := []string{
-		fmt.Sprintf("-DCONTROLLER_INTERFACE_ID=%d", link.Attrs().Index),
-	}
 
-	bpfTx := bpf.NewModule(cfiles.ControllerModuleTxC, append(cfiles.DefaultCflags, cflagsTx...))
-	if bpfTx == nil {
+	cm.bpfTx = bpf.NewModule(cfiles.ControllerModuleTxC, cfiles.DefaultCflags)
+	if cm.bpfTx == nil {
 		err = fmt.Errorf("ControllerModule: unable to create TX module")
 		return
 	}
 
-	cm.txModule = canvas.NewBpfAdapter(idTx, "controllerTX", bpfTx)
+	cm.txModule = canvas.NewBpfAdapter(idTx, "controllerTX", cm.bpfTx)
 
-	fdTx, err2 := bpfTx.LoadNet("controller_module_tx")
+	fdTx, err2 := cm.bpfTx.LoadNet("controller_module_tx")
 	if err2 != nil {
 		err = fmt.Errorf("ControllerModule: unable to load TX module: %s", err2)
 		return
@@ -152,50 +156,44 @@ func (c *Controller) Close() {
 }
 
 func (c *Controller) Run() {
-	packet := make([]byte, 2000)
-	var index uint32 = 0
-	for {
-		n, err := c.ifc.Read(packet)
-		index++
-		index %= 1024
+	table := bpf.NewTable(c.bpfTx.TableId("controller"), c.bpfTx)
+	channel := make(chan []byte)
 
-		if err != nil {
-			Error.Println("Error reading from controller iface")
-			continue
-		}
+	perfMap, err := bpf.InitPerfMap(table, channel)
+	if err != nil {
+		Error.Println("Failed to init perf map: %s\n", err)
+		return
+	}
 
-		if c.connected {
-			md_tbl := c.txModule.Table("md_map_tx")
-			if md_tbl == nil {
-				panic("md_map table not found")
-			}
-
-			md, ok := md_tbl.Get(strconv.FormatUint(uint64(index), 10))
-			if !ok {
-				panic("md entry not found")
-			}
-
+	// this function receives the packets that the dataplane sends using
+	// the perf ring buffer
+	go func() {
+		for {
 			p := &PacketIn{}
-			_, err := fmt.Sscanf(md.(bpf.Entry).Value, "{ 0x%x 0x%x 0x%x 0x%x [ 0x%x 0x%x 0x%x ] }",
-				&p.Module_id, &p.Port_id, &p.Packet_len, &p.Reason, &p.Metadata[0], &p.Metadata[1], &p.Metadata[2])
+			data := <-channel
+
+			err := binary.Read(bytes.NewBuffer(data), binary.LittleEndian, &p.Md)
 			if err != nil {
-				panic("Error parsing packet")
+				Error.Printf("failed to decode received data: %s\n", err)
+				continue
 			}
 
-			if p.Packet_len != uint16(n) {
-				panic("Length does not match")
-			}
+			start := binary.Size(p.Md)
+			stop := start + int(p.Md.Packet_len)
+			p.Data = data[start:stop]
 
-			p.Data = packet[:n]
+			//Info.Print(p.Data)
 
 			// should the packet be processed locally or sent to controller?
-			if p.Reason > cfiles.RESERVED_REASON_MIN {
+			if p.Md.Reason > cfiles.RESERVED_REASON_MIN {
 				c.processLocalPacket(p)
 			} else {
 				c.encoder.Encode(p)
 			}
 		}
-	}
+	}()
+
+	perfMap.Start()
 }
 
 func (c *Controller) RunExternal() (err error) {
@@ -294,16 +292,16 @@ func (c *Controller) sendPacketToIOModule(module_id uint16, ifc uint16, data []b
 }
 
 func (c *Controller) processLocalPacket(p *PacketIn) {
-	switch p.Reason {
+	switch p.Md.Reason {
 	case cfiles.PKT_BROADCAST:
 		c.broadcastPacket(p)
 	default:
-		Warn.Printf("Invalid reason: %d", p.Reason)
+		Warn.Printf("Invalid reason: %d", p.Md.Reason)
 	}
 }
 
 func (c *Controller) broadcastPacket(p *PacketIn) {
-	node := c.g.Node(int(p.Module_id))
+	node := c.g.Node(int(p.Md.Module_id))
 	if node == nil {
 		Warn.Printf("Controller: Bad module_id received")
 		return
@@ -313,7 +311,7 @@ func (c *Controller) broadcastPacket(p *PacketIn) {
 	for _, n := range to {
 		e := c.g.Edge(node, n)
 		// Do not broadcast packet on ingress ifc
-		if uint16(e.(canvas.Edge).F().I) == p.Port_id {
+		if uint16(e.(canvas.Edge).F().I) == p.Md.Port_id {
 			continue
 		}
 		module_id := uint16(e.(canvas.Edge).T().N)

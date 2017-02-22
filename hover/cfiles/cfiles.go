@@ -346,10 +346,6 @@ static int pkt_set_metadata(struct __sk_buff *skb, u32 md[3]){
 
 // Sends the packet to the controller
 var ControllerModuleTxC string = `
-#include <bcc/proto.h>
-#include <bcc/helpers.h>
-#include <linux/kernel.h>
-#include <linux/skbuff.h>
 
 struct metadata {
 	u16 module_id;
@@ -357,32 +353,12 @@ struct metadata {
 	u32 packet_len;
 	u16 reason;
 	u32 md[3];  // generic metadata
-};
+} __attribute__((packed));
 
-BPF_TABLE("array", u32, struct metadata, md_map_tx, MD_MAP_SIZE);
-BPF_TABLE("array", u32, u32, index_map_tx, 1);
+BPF_PERF_OUTPUT(controller);
 
 int controller_module_tx(struct __sk_buff *skb) {
 	bpf_trace_printk("to controller\n");
-
-	u32 zero = 0;
-	u32 *index = index_map_tx.lookup(&zero);
-	if (!index) {
-		goto ERROR;
-	}
-
-	rcu_read_lock();
-
-	(*index)++;
-	*index %= MD_MAP_SIZE;
-
-	u32 i = *index;
-
-	struct metadata *md = md_map_tx.lookup(&i);
-	if (!md) {
-		rcu_read_unlock();
-		goto ERROR;
-	}
 
 	volatile u32 x; // volatile to avoid verifier error on kernels < 4.10
 	x = skb->cb[0];
@@ -392,29 +368,29 @@ int controller_module_tx(struct __sk_buff *skb) {
 	x = skb->cb[1];
 	u16 reason = x & 0xffff;
 
-	md->module_id = module_id;
-	md->port_id = in_ifc;
-	md->packet_len = skb->len;
-	md->reason = reason;
+	struct metadata md = {0};
+	md.module_id = module_id;
+	md.port_id = in_ifc;
+	md.packet_len = skb->len;
+	md.reason = reason;
 
-	x=skb->cb[2];
-	md->md[0] = x;
-	x=skb->cb[3];
-	md->md[1] = x;
-	x=skb->cb[4];
-	md->md[2] = x;
+	x = skb->cb[2];
+	md.md[0] = x;
+	x = skb->cb[3];
+	md.md[1] = x;
+	x = skb->cb[4];
+	md.md[2] = x;
 
-	// bpf_trace_printk("pkt.to.ctrl md(1,2,3) %d %d %d\n",md->md[0],md->md[1],md->md[2]);
+	int r = controller.perf_submit_skb(skb, skb->len, &md, sizeof(md));
+	if (r != 0) {
+		bpf_trace_printk("Controller Error: r is %d\n", r);
+	}
 
-	bpf_redirect(CONTROLLER_INTERFACE_ID, 0);
-
-	rcu_read_unlock();
 	return 7;
 ERROR:
 	bpf_trace_printk("Error.......\n");
 	return 7;	//TODO: check code
-}
-`
+}`
 
 // Receives packet from controller and forwards it to the IOModule
 var ControllerModuleRxC string = `
