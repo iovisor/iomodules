@@ -23,7 +23,8 @@ import (
 
 	"github.com/vishvananda/netlink"
 
-	"github.com/iovisor/iomodules/hover/bpf"
+	bpf "github.com/iovisor/gobpf/bcc"
+
 	"github.com/iovisor/iomodules/hover/canvas"
 )
 
@@ -42,11 +43,11 @@ type NetlinkMonitor struct {
 
 	g       canvas.Graph
 	r       *Renderer
-	modules *bpf.BpfTable
+	modules *bpf.Table
 	mtx     sync.RWMutex
 }
 
-func NewNetlinkMonitor(g canvas.Graph, r *Renderer, modules *bpf.BpfTable) (res *NetlinkMonitor, err error) {
+func NewNetlinkMonitor(g canvas.Graph, r *Renderer, modules *bpf.Table) (res *NetlinkMonitor, err error) {
 	nlmon := &NetlinkMonitor{
 		updates: make(chan netlink.LinkUpdate),
 		done:    make(chan struct{}),

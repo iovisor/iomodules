@@ -27,9 +27,11 @@ import (
 	"github.com/gonum/graph"
 	"github.com/gonum/graph/traverse"
 
+	bpf "github.com/iovisor/gobpf/bcc"
+
 	"github.com/iovisor/iomodules/hover"
 	"github.com/iovisor/iomodules/hover/api"
-	"github.com/iovisor/iomodules/hover/bpf"
+	"github.com/iovisor/iomodules/hover/cfiles"
 	"github.com/iovisor/iomodules/hover/canvas"
 	"github.com/iovisor/iomodules/hover/util"
 )
@@ -204,8 +206,8 @@ func NewPatchPanel() (pp *PatchPanel, err error) {
 			pp = nil
 		}
 	}()
-	code := strings.Join([]string{bpf.IomoduleH, bpf.PatchC}, "\n")
-	b := bpf.NewBpfModule(code, []string{"-w"})
+	code := strings.Join([]string{cfiles.IomoduleH, cfiles.PatchC}, "\n")
+	b := bpf.NewModule(code, append(cfiles.DefaultCflags, "-w"))
 	if b == nil {
 		err = fmt.Errorf("PatchPanel: unable to load core module")
 		return
@@ -239,14 +241,14 @@ func (s *HoverServer) Init() (err error) {
 		return
 	}
 
-	moduleId := strconv.Itoa(int(bpf.MAX_MODULES - 1))
+	moduleId := strconv.Itoa(int(cfiles.MAX_MODULES - 1))
 	moduleFd := strconv.Itoa(s.controller.txModule.FD())
 	s.patchPanel.modules.Set(moduleId, moduleFd)
 
 	go s.controller.Run()
 
 	s.renderer = hover.NewRenderer()
-	s.nlmon, err = hover.NewNetlinkMonitor(s.g, s.renderer, s.patchPanel.modules.(*bpf.BpfTable))
+	s.nlmon, err = hover.NewNetlinkMonitor(s.g, s.renderer, s.patchPanel.modules.(*bpf.Table))
 	if err != nil {
 		return
 	}

@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"github.com/vishvananda/netlink"
 
+	bpf "github.com/iovisor/gobpf/bcc"
+
 	"github.com/iovisor/iomodules/hover/api"
 )
 
@@ -78,8 +80,8 @@ func (table *BridgeTable) Set(key, val string) error {
 func (table *BridgeTable) Delete(key string) error {
 	return fmt.Errorf("BridgeTable: Delete operation not supported")
 }
-func (table *BridgeTable) Iter() <-chan api.ModuleTableEntry {
-	ch := make(chan api.ModuleTableEntry)
+func (table *BridgeTable) Iter() <-chan bpf.Entry {
+	ch := make(chan bpf.Entry)
 	close(ch)
 	return ch
 }

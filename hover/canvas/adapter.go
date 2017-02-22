@@ -20,8 +20,10 @@ import (
 	"fmt"
 	"strings"
 
+	bpf "github.com/iovisor/gobpf/bcc"
+
 	"github.com/iovisor/iomodules/hover/api"
-	"github.com/iovisor/iomodules/hover/bpf"
+	"github.com/iovisor/iomodules/hover/cfiles"
 	"github.com/iovisor/iomodules/hover/util"
 )
 
@@ -58,7 +60,7 @@ type AdapterTable interface {
 	Get(key string) (interface{}, bool)
 	Set(key, val string) error
 	Delete(key string) error
-	Iter() <-chan api.ModuleTableEntry
+	Iter() <-chan bpf.Entry
 }
 
 type Interface interface {
@@ -112,7 +114,7 @@ func NewAdapter(req api.ModuleBase, g Graph, id int) (adapter Adapter, err error
 
 func NewAdapterNode(adapter Adapter) *AdapterNode {
 	return &AdapterNode{
-		NodeBase: NewNodeBase(-1, adapter.FD(), adapter.UUID(), "", bpf.MAX_INTERFACES),
+		NodeBase: NewNodeBase(-1, adapter.FD(), adapter.UUID(), "", cfiles.MAX_INTERFACES),
 		adapter:  adapter,
 	}
 }

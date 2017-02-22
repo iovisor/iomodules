@@ -20,8 +20,10 @@ import (
 	"fmt"
 	"strings"
 
+	bpf "github.com/iovisor/gobpf/bcc"
+
 	"github.com/iovisor/iomodules/hover/api"
-	"github.com/iovisor/iomodules/hover/bpf"
+	"github.com/iovisor/iomodules/hover/cfiles"
 )
 
 type BpfAdapter struct {
@@ -30,12 +32,12 @@ type BpfAdapter struct {
 	tags    []string
 	perm    uint
 	config  map[string]interface{}
-	bpf     *bpf.BpfModule
+	bpf     *bpf.Module
 	fd      int
 	subtype string
 }
 
-func NewBpfAdapter(uuid, name string, b *bpf.BpfModule) *BpfAdapter {
+func NewBpfAdapter(uuid, name string, b *bpf.Module) *BpfAdapter {
 	return &BpfAdapter{
 		uuid:   uuid[:8],
 		name:   name,
@@ -64,7 +66,7 @@ func (adapter *BpfAdapter) SetConfig(req api.ModuleBase, g Graph, id int) error 
 				return fmt.Errorf("Expected code argument to be a string")
 			}
 			code = val
-			fullCode = strings.Join([]string{bpf.IomoduleH, bpf.WrapperC, val}, "\n")
+			fullCode = strings.Join([]string{cfiles.IomoduleH, cfiles.WrapperC, val}, "\n")
 		}
 	}
 	cflags := []string{"-DMODULE_UUID_SHORT=\"" + adapter.uuid[:8] + "\""}
@@ -77,7 +79,7 @@ func (adapter *BpfAdapter) SetConfig(req api.ModuleBase, g Graph, id int) error 
 			return fmt.Errorf("BPF code update not supported")
 		}
 	} else {
-		adapter.bpf = bpf.NewBpfModule(fullCode, cflags)
+		adapter.bpf = bpf.NewModule(fullCode, append(cfiles.DefaultCflags, cflags...))
 		if adapter.bpf == nil {
 			return fmt.Errorf("Could not load bpf code, check server log for details")
 		}
@@ -110,7 +112,7 @@ func (adapter *BpfAdapter) FD() int                        { return adapter.fd }
 func (adapter *BpfAdapter) SetFD(fd int)                   { adapter.fd = fd}
 
 func (adapter *BpfAdapter) Init() error {
-	fd, err := adapter.bpf.InitRxHandler()
+	fd, err := adapter.bpf.LoadNet("handle_rx_wrapper")
 	if err != nil {
 		Warn.Printf("Unable to init rx handler: %s\n", err)
 		return err
@@ -138,5 +140,5 @@ func (adapter *BpfAdapter) Table(name string) AdapterTable {
 	if ^uint64(id) == 0 {
 		return nil
 	}
-	return bpf.NewBpfTable(id, adapter.bpf)
+	return bpf.NewTable(id, adapter.bpf)
 }

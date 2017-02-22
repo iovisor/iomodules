@@ -14,7 +14,33 @@
 
 // vim: set ts=8:sts=8:sw=8:noet
 
-package bpf
+package cfiles
+
+import (
+	"fmt"
+	"math"
+)
+
+const (
+	MAX_MODULES    uint = 1024
+	MAX_INTERFACES uint = 128
+
+	MD_MAP_SIZE    uint32 = 1024 // Number of elements in the map for metadata
+)
+
+// Reserved reasons
+const (
+	PKT_BROADCAST       uint16 = math.MaxUint16 - iota
+	RESERVED_REASON_MIN uint16 = math.MaxUint16 - iota
+)
+
+var DefaultCflags = []string{
+	fmt.Sprintf("-DMAX_INTERFACES=%d", MAX_INTERFACES),
+	fmt.Sprintf("-DMAX_MODULES=%d", MAX_MODULES),
+	"-DMAX_METADATA=10240",
+	fmt.Sprintf("-DMD_MAP_SIZE=%d", MD_MAP_SIZE),
+	fmt.Sprintf("-DPKT_BROADCAST=%d", PKT_BROADCAST),
+}
 
 var IomoduleH string = `
 #include <bcc/proto.h>
@@ -378,7 +404,7 @@ int controller_module_tx(struct __sk_buff *skb) {
 	x=skb->cb[4];
 	md->md[2] = x;
 
-	bpf_trace_printk("pkt.to.ctrl md(1,2,3) %d %d %d\n",md->md[0],md->md[1],md->md[2]);
+	// bpf_trace_printk("pkt.to.ctrl md(1,2,3) %d %d %d\n",md->md[0],md->md[1],md->md[2]);
 
 	bpf_redirect(CONTROLLER_INTERFACE_ID, 0);
 

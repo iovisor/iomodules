@@ -21,9 +21,10 @@ import (
 	"os/exec"
 	"strconv"
 
+	bpf "github.com/iovisor/gobpf/bcc"
+
 	"github.com/iovisor/iomodules/hover"
-	"github.com/iovisor/iomodules/hover/api"
-	"github.com/iovisor/iomodules/hover/bpf"
+	"github.com/iovisor/iomodules/hover/cfiles"
 	"github.com/iovisor/iomodules/hover/canvas"
 	"github.com/iovisor/iomodules/hover/util"
 
@@ -103,7 +104,7 @@ func NewController(g canvas.Graph) (cm *Controller, err error) {
 		fmt.Sprintf("-DCONTROLLER_INTERFACE_ID=%d", link.Attrs().Index),
 	}
 
-	bpfTx := bpf.NewBpfModule(bpf.ControllerModuleTxC, cflagsTx)
+	bpfTx := bpf.NewModule(cfiles.ControllerModuleTxC, append(cfiles.DefaultCflags, cflagsTx...))
 	if bpfTx == nil {
 		err = fmt.Errorf("ControllerModule: unable to create TX module")
 		return
@@ -122,7 +123,7 @@ func NewController(g canvas.Graph) (cm *Controller, err error) {
 	// Create rx module
 	idRx := util.NewUUID4()
 
-	bpfRx := bpf.NewBpfModule(bpf.ControllerModuleRxC, []string{})
+	bpfRx := bpf.NewModule(cfiles.ControllerModuleRxC, cfiles.DefaultCflags)
 	if bpfRx == nil {
 		err = fmt.Errorf("ControllerModule: unable to create RX module")
 		return
@@ -175,7 +176,7 @@ func (c *Controller) Run() {
 			}
 
 			p := &PacketIn{}
-			_, err := fmt.Sscanf(md.(api.ModuleTableEntry).Value, "{ 0x%x 0x%x 0x%x 0x%x [ 0x%x 0x%x 0x%x ] }",
+			_, err := fmt.Sscanf(md.(bpf.Entry).Value, "{ 0x%x 0x%x 0x%x 0x%x [ 0x%x 0x%x 0x%x ] }",
 				&p.Module_id, &p.Port_id, &p.Packet_len, &p.Reason, &p.Metadata[0], &p.Metadata[1], &p.Metadata[2])
 			if err != nil {
 				panic("Error parsing packet")
@@ -188,7 +189,7 @@ func (c *Controller) Run() {
 			p.Data = packet[:n]
 
 			// should the packet be processed locally or sent to controller?
-			if p.Reason > bpf.RESERVED_REASON_MIN {
+			if p.Reason > cfiles.RESERVED_REASON_MIN {
 				c.processLocalPacket(p)
 			} else {
 				c.encoder.Encode(p)
@@ -269,7 +270,7 @@ func (c *Controller) ConnectToRemoteController(addr string) (err error) {
 
 func (c *Controller) sendPacketToIOModule(module_id uint16, ifc uint16, data []byte) (err error) {
 	c.p_index++
-	c.p_index %= bpf.MD_MAP_SIZE
+	c.p_index %= cfiles.MD_MAP_SIZE
 
 	// save metadata
 	md_tbl := c.rxModule.Table("md_map_rx")
@@ -294,7 +295,7 @@ func (c *Controller) sendPacketToIOModule(module_id uint16, ifc uint16, data []b
 
 func (c *Controller) processLocalPacket(p *PacketIn) {
 	switch p.Reason {
-	case bpf.PKT_BROADCAST:
+	case cfiles.PKT_BROADCAST:
 		c.broadcastPacket(p)
 	default:
 		Warn.Printf("Invalid reason: %d", p.Reason)
