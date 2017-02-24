@@ -14,17 +14,46 @@
 
 // vim: set ts=8:sts=8:sw=8:noet
 
-package bpf
+package cfiles
+
+import (
+	"fmt"
+	"math"
+)
+
+const (
+	MAX_MODULES    uint = 1024
+	MAX_INTERFACES uint = 128
+
+	MD_MAP_SIZE    uint32 = 1024 // Number of elements in the map for metadata
+)
+
+// Reserved reasons
+const (
+	PKT_BROADCAST       uint16 = math.MaxUint16 - iota
+	RESERVED_REASON_MIN uint16 = math.MaxUint16 - iota
+)
+
+var DefaultCflags = []string{
+	fmt.Sprintf("-DMAX_INTERFACES=%d", MAX_INTERFACES),
+	fmt.Sprintf("-DMAX_MODULES=%d", MAX_MODULES),
+	"-DMAX_METADATA=10240",
+	fmt.Sprintf("-DMD_MAP_SIZE=%d", MD_MAP_SIZE),
+	fmt.Sprintf("-DPKT_BROADCAST=%d", PKT_BROADCAST),
+}
 
 var IomoduleH string = `
 #include <bcc/proto.h>
 #include <uapi/linux/pkt_cls.h>
+
+#define CONTROLLER_MODULE_ID (MAX_MODULES - 1)
 
 enum {
 	RX_OK,
 	RX_REDIRECT,
 	RX_DROP,
 	RX_RECIRCULATE,
+	RX_CONTROLLER,
 	RX_ERROR,
 };
 
@@ -56,25 +85,28 @@ struct metadata {
 	u32 pktlen;
 
 	// The module id currently processing the packet.
-	int module_id;
+	u16 module_id;
 
 	// The interface on which a packet was received. Numbering is local to the
 	// module.
-	int in_ifc;
+	u16 in_ifc;
 
 	// If the module intends to forward the packet, it must call pkt_redirect to
 	// set this field to determine the next-hop.
-	int redir_ifc;
+	u16 redir_ifc;
 
-	int clone_ifc;
+	u16 clone_ifc;
+
+	// Why the packet is being sent to the controller
+	u16 reason;
 };
 
 // iomodule must implement this function to attach to the networking stack
 static int handle_rx(void *pkt, struct metadata *md);
 static int handle_tx(void *pkt, struct metadata *md);
 
-static int pkt_redirect(void *pkt, struct metadata *md, int ifc);
-static int pkt_mirror(void *pkt, struct metadata *md, int ifc);
+static int pkt_redirect(void *pkt, struct metadata *md, u16 ifc);
+static int pkt_mirror(void *pkt, struct metadata *md, u16 ifc);
 static int pkt_drop(void *pkt, struct metadata *md);
 `
 
@@ -82,7 +114,7 @@ var NetdevRxC string = `
 BPF_TABLE("extern", int, int, modules, MAX_MODULES);
 int ingress(struct __sk_buff *skb) {
 	//bpf_trace_printk("ingress %d %x\n", skb->ifindex, CHAIN_VALUE0);
-	skb->cb[0] = CHAIN_VALUE0 >> 16;
+	skb->cb[0] = CHAIN_VALUE0;
 	skb->cb[1] = CHAIN_VALUE1;
 	skb->cb[2] = CHAIN_VALUE2;
 	skb->cb[3] = CHAIN_VALUE3;
@@ -104,7 +136,7 @@ var NetdevEgressC string = `
 BPF_TABLE("extern", int, int, modules, MAX_MODULES);
 int egress(struct __sk_buff *skb) {
 	//bpf_trace_printk("egress %d %x\n", skb->ifindex, CHAIN_VALUE0);
-	skb->cb[0] = CHAIN_VALUE0 >> 16;
+	skb->cb[0] = CHAIN_VALUE0;
 	skb->cb[1] = CHAIN_VALUE1;
 	skb->cb[2] = CHAIN_VALUE2;
 	skb->cb[3] = CHAIN_VALUE3;
@@ -231,7 +263,7 @@ static int forward(struct __sk_buff *skb, int out_ifc) {
 	struct chain *cur = (struct chain *)skb->cb;
 	struct chain *next = forward_chain.lookup(&out_ifc);
 	if (next) {
-		cur->hops[0] = chain_ifc(next, 0);
+		cur->hops[0] = next->hops[0];
 		cur->hops[1] = next->hops[1];
 		cur->hops[2] = next->hops[2];
 		cur->hops[3] = next->hops[3];
@@ -245,7 +277,7 @@ static int forward(struct __sk_buff *skb, int out_ifc) {
 static int chain_pop(struct __sk_buff *skb) {
 	struct chain *cur = (struct chain *)skb->cb;
 	struct chain orig = *cur;
-	cur->hops[0] = chain_ifc(&orig, 1);
+	cur->hops[0] = cur->hops[1];
 	cur->hops[1] = cur->hops[2];
 	cur->hops[2] = cur->hops[3];
 	cur->hops[3] = 0;
@@ -257,11 +289,19 @@ static int chain_pop(struct __sk_buff *skb) {
 	return TC_ACT_OK;
 }
 
+static int to_controller(struct __sk_buff *skb, u16 reason) {
+	skb->cb[1] = reason;
+	modules.call(skb, CONTROLLER_MODULE_ID);
+	bpf_trace_printk("to controller miss\n");
+	return TC_ACT_OK;
+}
+
 int handle_rx_wrapper(struct __sk_buff *skb) {
 	//bpf_trace_printk("" MODULE_UUID_SHORT ": rx:%d\n", skb->cb[0]);
 	struct metadata md = {};
-	md.in_ifc = skb->cb[0];
-
+	volatile u32 x = skb->cb[0]; // volatile to avoid a rare verifier error
+	md.in_ifc = x >> 16;
+	md.module_id = x & 0xffff;
 	int rc = handle_rx(skb, &md);
 
 	// TODO: implementation
@@ -275,17 +315,134 @@ int handle_rx_wrapper(struct __sk_buff *skb) {
 		//	break;
 		case RX_DROP:
 			return TC_ACT_SHOT;
+		case RX_CONTROLLER:
+			return to_controller(skb, md.reason);
 	}
 	return TC_ACT_SHOT;
 }
 
-static int pkt_redirect(void *pkt, struct metadata *md, int ifc) {
+static int pkt_redirect(void *pkt, struct metadata *md, u16 ifc) {
 	md->redir_ifc = ifc;
 	return TC_ACT_OK;
 }
 
-static int pkt_mirror(void *pkt, struct metadata *md, int ifc) {
+static int pkt_mirror(void *pkt, struct metadata *md, u16 ifc) {
 	md->clone_ifc = ifc;
 	return TC_ACT_OK;
+}
+
+static int pkt_controller(void *pkt, struct metadata *md, u16 reason) {
+	md->reason = reason;
+	return TC_ACT_OK;
+}
+
+static int pkt_set_metadata(struct __sk_buff *skb, u32 md[3]){
+	skb->cb[2] = md[0];
+	skb->cb[3] = md[1];
+	skb->cb[4] = md[2];
+	return TC_ACT_OK;
+}
+`
+
+// Sends the packet to the controller
+var ControllerModuleTxC string = `
+
+struct metadata {
+	u16 module_id;
+	u16 port_id;
+	u32 packet_len;
+	u16 reason;
+	u32 md[3];  // generic metadata
+} __attribute__((packed));
+
+BPF_PERF_OUTPUT(controller);
+
+int controller_module_tx(struct __sk_buff *skb) {
+	bpf_trace_printk("to controller\n");
+
+	volatile u32 x; // volatile to avoid verifier error on kernels < 4.10
+	x = skb->cb[0];
+	u16 in_ifc = x >> 16;
+	u16 module_id = x & 0xffff;
+
+	x = skb->cb[1];
+	u16 reason = x & 0xffff;
+
+	struct metadata md = {0};
+	md.module_id = module_id;
+	md.port_id = in_ifc;
+	md.packet_len = skb->len;
+	md.reason = reason;
+
+	x = skb->cb[2];
+	md.md[0] = x;
+	x = skb->cb[3];
+	md.md[1] = x;
+	x = skb->cb[4];
+	md.md[2] = x;
+
+	int r = controller.perf_submit_skb(skb, skb->len, &md, sizeof(md));
+	if (r != 0) {
+		bpf_trace_printk("Controller Error: r is %d\n", r);
+	}
+
+	return 7;
+ERROR:
+	bpf_trace_printk("Error.......\n");
+	return 7;	//TODO: check code
+}`
+
+// Receives packet from controller and forwards it to the IOModule
+var ControllerModuleRxC string = `
+#include <bcc/proto.h>
+#include <bcc/helpers.h>
+#include <linux/kernel.h>
+#include <linux/skbuff.h>
+
+BPF_TABLE("extern", int, int, modules, MAX_MODULES);
+
+struct metadata {
+	u16 module_id;
+	u16 port_id;
+};
+
+BPF_TABLE("array", u32, struct metadata, md_map_rx, MD_MAP_SIZE);
+BPF_TABLE("array", u32, u32, index_map_rx, 1);
+
+int controller_module_rx(struct __sk_buff *skb) {
+	bpf_trace_printk("from controller\n");
+
+	u32 zero = 0;
+	u32 *index = index_map_rx.lookup(&zero);
+	if (!index) {
+		goto ERROR;
+	}
+
+	rcu_read_lock();
+
+	(*index)++;
+	*index %= MD_MAP_SIZE;
+	rcu_read_unlock();
+
+	u32 i = *index;
+
+	struct metadata *md = md_map_rx.lookup(&i);
+	if (!md) {
+		goto ERROR;
+	}
+
+	u16 in_ifc = md->port_id;
+	u16 module_id = md->module_id;
+
+	skb->cb[0] = in_ifc << 16 | module_id;
+	skb->cb[1] = 0;
+	skb->cb[2] = 0;
+	skb->cb[3] = 0;
+	modules.call(skb, module_id);
+	return 2;
+
+ERROR:
+	bpf_trace_printk("ControllerModuleRX: Error.......\n");
+	return 2;
 }
 `

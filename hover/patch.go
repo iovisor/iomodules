@@ -48,7 +48,7 @@ func ensureQdisc(link netlink.Link, qdiscType string, handle, parent uint32) (ne
 	return qdisc, nil
 }
 
-func ensureIngressFd(link netlink.Link, fd int) error {
+func EnsureIngressFd(link netlink.Link, fd int) error {
 	q, err := ensureQdisc(link, "ingress", netlink.MakeHandle(0xffff, 0), netlink.HANDLE_INGRESS)
 	if err != nil {
 		return err

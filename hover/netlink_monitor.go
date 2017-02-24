@@ -16,13 +16,15 @@ package hover
 
 import (
 	"fmt"
+	"os/exec"
 	"strconv"
 	"sync"
 	"syscall"
 
 	"github.com/vishvananda/netlink"
 
-	"github.com/iovisor/iomodules/hover/bpf"
+	bpf "github.com/iovisor/gobpf/bcc"
+
 	"github.com/iovisor/iomodules/hover/canvas"
 )
 
@@ -41,11 +43,11 @@ type NetlinkMonitor struct {
 
 	g       canvas.Graph
 	r       *Renderer
-	modules *bpf.BpfTable
+	modules *bpf.Table
 	mtx     sync.RWMutex
 }
 
-func NewNetlinkMonitor(g canvas.Graph, r *Renderer, modules *bpf.BpfTable) (res *NetlinkMonitor, err error) {
+func NewNetlinkMonitor(g canvas.Graph, r *Renderer, modules *bpf.Table) (res *NetlinkMonitor, err error) {
 	nlmon := &NetlinkMonitor{
 		updates: make(chan netlink.LinkUpdate),
 		done:    make(chan struct{}),
@@ -232,13 +234,25 @@ func (nm *NetlinkMonitor) ensureInterface(g canvas.Graph, node InterfaceNode) er
 		if e.Serialize()[0] == 0 {
 			return nil
 		}
+
+		// remove all the ip addresses on that interface
+		_, err1 := exec.Command("ip", "address", "flush", "dev", node.Link().Attrs().Name).Output()
+		if err1 != nil {
+			return fmt.Errorf("unable to flush addresses in interface")
+		}
+
+		_, err2 := exec.Command("ip", "link", "set", node.Link().Attrs().Name, "promisc", "on").Output()
+		if err2 != nil {
+			return fmt.Errorf("ControllerModule: unable to configure tap interface")
+		}
+
 		chain, err := NewIngressChain(e.Serialize())
 		if err != nil {
 			return err
 		}
 		defer chain.Close()
 		Info.Printf(" %4d: %-11s%s\n", e.F().Ifc(), next.Path(), e)
-		if err := ensureIngressFd(node.Link(), chain.FD()); err != nil {
+		if err := EnsureIngressFd(node.Link(), chain.FD()); err != nil {
 			return err
 		}
 	default:

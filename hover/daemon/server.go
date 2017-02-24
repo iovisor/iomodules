@@ -27,9 +27,11 @@ import (
 	"github.com/gonum/graph"
 	"github.com/gonum/graph/traverse"
 
+	bpf "github.com/iovisor/gobpf/bcc"
+
 	"github.com/iovisor/iomodules/hover"
 	"github.com/iovisor/iomodules/hover/api"
-	"github.com/iovisor/iomodules/hover/bpf"
+	"github.com/iovisor/iomodules/hover/cfiles"
 	"github.com/iovisor/iomodules/hover/canvas"
 	"github.com/iovisor/iomodules/hover/util"
 )
@@ -51,6 +53,7 @@ type HoverServer struct {
 	handler        http.Handler
 	adapterEntries AdapterEntries
 	patchPanel     *PatchPanel
+	controller     *Controller
 	g              canvas.Graph
 	nlmon          *hover.NetlinkMonitor
 	renderer       *hover.Renderer
@@ -203,8 +206,8 @@ func NewPatchPanel() (pp *PatchPanel, err error) {
 			pp = nil
 		}
 	}()
-	code := strings.Join([]string{bpf.IomoduleH, bpf.PatchC}, "\n")
-	b := bpf.NewBpfModule(code, []string{"-w"})
+	code := strings.Join([]string{cfiles.IomoduleH, cfiles.PatchC}, "\n")
+	b := bpf.NewModule(code, append(cfiles.DefaultCflags, "-w"))
 	if b == nil {
 		err = fmt.Errorf("PatchPanel: unable to load core module")
 		return
@@ -231,8 +234,21 @@ func (s *HoverServer) Init() (err error) {
 	if err != nil {
 		return
 	}
+
+	s.controller, err = NewController(s.g)
+	if err != nil {
+		Error.Printf("Error creating controller: \n", err)
+		return
+	}
+
+	moduleId := strconv.Itoa(int(cfiles.MAX_MODULES - 1))
+	moduleFd := strconv.Itoa(s.controller.txModule.FD())
+	s.patchPanel.modules.Set(moduleId, moduleFd)
+
+	go s.controller.Run()
+
 	s.renderer = hover.NewRenderer()
-	s.nlmon, err = hover.NewNetlinkMonitor(s.g, s.renderer, s.patchPanel.modules.(*bpf.BpfTable))
+	s.nlmon, err = hover.NewNetlinkMonitor(s.g, s.renderer, s.patchPanel.modules.(*bpf.Table))
 	if err != nil {
 		return
 	}
@@ -624,6 +640,24 @@ func (s *HoverServer) handleExternalInterfaceList(r *http.Request) routeResponse
 	}
 }
 
+type controllerEntry struct {
+	Addr   string `json:"addr"`
+}
+
+func (s *HoverServer) handleControllerPost(r *http.Request) routeResponse {
+	var req controllerEntry
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		panic(err)
+	}
+
+	err := s.controller.ConnectToRemoteController(req.Addr)
+	if err != nil {
+		panic(fmt.Errorf("Error connecting to controller: %s", req.Addr))
+	}
+
+	return routeResponse{}
+}
+
 func (s *HoverServer) Handler() http.Handler {
 	return s.handler
 }
@@ -654,6 +688,7 @@ func NewServer() *HoverServer {
 	// modules/{moduleId}/tables/{tableId}/entries
 	// links
 	// external_interfaces
+	// controllers
 
 	mod := rtr.PathPrefix("/modules").Subrouter()
 	mod.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleModuleList))
@@ -682,6 +717,9 @@ func NewServer() *HoverServer {
 
 	ext := rtr.PathPrefix("/external_interfaces").Subrouter()
 	ext.Methods("GET").Path("/").HandlerFunc(makeHandler(s.handleExternalInterfaceList))
+
+	cnt := rtr.PathPrefix("/controllers").Subrouter()
+	cnt.Methods("POST").Path("/").HandlerFunc(makeHandler(s.handleControllerPost))
 
 	return s
 }

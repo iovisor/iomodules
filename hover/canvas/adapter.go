@@ -20,8 +20,10 @@ import (
 	"fmt"
 	"strings"
 
+	bpf "github.com/iovisor/gobpf/bcc"
+
 	"github.com/iovisor/iomodules/hover/api"
-	"github.com/iovisor/iomodules/hover/bpf"
+	"github.com/iovisor/iomodules/hover/cfiles"
 	"github.com/iovisor/iomodules/hover/util"
 )
 
@@ -58,7 +60,7 @@ type AdapterTable interface {
 	Get(key string) (interface{}, bool)
 	Set(key, val string) error
 	Delete(key string) error
-	Iter() <-chan api.ModuleTableEntry
+	Iter() <-chan bpf.Entry
 }
 
 type Interface interface {
@@ -72,7 +74,7 @@ type AdapterNode struct {
 }
 
 func NewAdapter(req api.ModuleBase, g Graph, id int) (adapter Adapter, err error) {
-	uuid := util.NewUUID4()
+	uuid := fmt.Sprintf("%08d", id)
 
 	parts := strings.SplitN(req.ModuleType, "/", 2)
 	switch parts[0] {
@@ -82,7 +84,7 @@ func NewAdapter(req api.ModuleBase, g Graph, id int) (adapter Adapter, err error
 			subtype = parts[1]
 		}
 		a := &BpfAdapter{
-			uuid:    uuid[:8],
+			uuid:    uuid,
 			perm:    PermR | PermW,
 			config:  make(map[string]interface{}),
 			subtype: subtype,
@@ -93,7 +95,7 @@ func NewAdapter(req api.ModuleBase, g Graph, id int) (adapter Adapter, err error
 		adapter = a
 	case "bridge":
 		a := &BridgeAdapter{
-			uuid:   uuid[:8],
+			uuid:   uuid,
 			name:   req.DisplayName,
 			tags:   req.Tags,
 			perm:   PermR | PermW,
@@ -112,7 +114,7 @@ func NewAdapter(req api.ModuleBase, g Graph, id int) (adapter Adapter, err error
 
 func NewAdapterNode(adapter Adapter) *AdapterNode {
 	return &AdapterNode{
-		NodeBase: NewNodeBase(-1, adapter.FD(), adapter.UUID(), "", bpf.MAX_INTERFACES),
+		NodeBase: NewNodeBase(-1, adapter.FD(), adapter.UUID(), "", cfiles.MAX_INTERFACES),
 		adapter:  adapter,
 	}
 }
